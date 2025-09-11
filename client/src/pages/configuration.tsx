@@ -5,14 +5,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Play, Save, TestTube } from "lucide-react";
 import { Navigation } from "@/components/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { CveScan } from "@/types/cve";
+import { DateRange } from "react-day-picker";
+import { format, differenceInDays, subYears } from "date-fns";
 
 export default function Configuration() {
-  const [timeframeYears, setTimeframeYears] = useState(3);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>({
+    from: subYears(new Date(), 3),
+    to: new Date()
+  });
   const [googleSheetsId, setGoogleSheetsId] = useState("");
   const { toast } = useToast();
 
@@ -21,15 +27,19 @@ export default function Configuration() {
   });
 
   const startScanMutation = useMutation({
-    mutationFn: async (timeframe: number) => {
-      const response = await apiRequest("POST", "/api/scans", { timeframeYears: timeframe });
+    mutationFn: async (scanParams: { startDate: string; endDate: string; timeframeYears?: number }) => {
+      const response = await apiRequest("POST", "/api/scans", scanParams);
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/scans"] });
+      const days = dateRange?.from && dateRange?.to ? differenceInDays(dateRange.to, dateRange.from) + 1 : 0;
+      const description = dateRange?.from && dateRange?.to 
+        ? `Started scanning CVEs from ${format(dateRange.from, 'MMM d, yyyy')} to ${format(dateRange.to, 'MMM d, yyyy')} (${days} days)`
+        : 'Started CVE scan';
       toast({
         title: "CVE Scan Started",
-        description: `Started scanning CVEs for the last ${timeframeYears} years.`,
+        description,
       });
     },
     onError: (error) => {
@@ -65,7 +75,27 @@ export default function Configuration() {
   });
 
   const handleStartScan = () => {
-    startScanMutation.mutate(timeframeYears);
+    if (!dateRange?.from || !dateRange?.to) {
+      toast({
+        title: "Invalid Date Range",
+        description: "Please select both start and end dates for the scan.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Convert date range to API format
+    const startDate = format(dateRange.from, 'yyyy-MM-dd');
+    const endDate = format(dateRange.to, 'yyyy-MM-dd');
+    
+    // Calculate approximate years for backward compatibility
+    const years = Math.max(1, Math.round(differenceInDays(dateRange.to, dateRange.from) / 365));
+    
+    startScanMutation.mutate({
+      startDate,
+      endDate,
+      timeframeYears: years
+    });
   };
 
   const handleTestSheets = () => {
@@ -102,22 +132,20 @@ export default function Configuration() {
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="timeframe">Scanning Timeframe</Label>
-                    <Select 
-                      value={timeframeYears.toString()} 
-                      onValueChange={(value) => setTimeframeYears(Number(value))}
-                      data-testid="select-timeframe-config"
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select timeframe" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1">Last 1 year</SelectItem>
-                        <SelectItem value="2">Last 2 years</SelectItem>
-                        <SelectItem value="3">Last 3 years</SelectItem>
-                        <SelectItem value="5">Last 5 years</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="date-range">Scanning Date Range</Label>
+                    <DateRangePicker
+                      value={dateRange}
+                      onChange={setDateRange}
+                      placeholder="Select scanning date range"
+                      maxDays={1825} // 5 years maximum
+                      className="w-full"
+                      data-testid="date-range-picker-config"
+                    />
+                    {dateRange?.from && dateRange?.to && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Scanning {differenceInDays(dateRange.to, dateRange.from) + 1} days of CVE data
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-end">
                     <Button 

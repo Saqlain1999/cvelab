@@ -260,7 +260,15 @@ export class MemStorage implements IStorage {
       dockerInfo: insertCve.dockerInfo ?? null,
       fingerprintInfo: insertCve.fingerprintInfo ?? null,
       discoveryMetadata: insertCve.discoveryMetadata ?? null,
-      sources: insertCve.sources ?? []
+      sources: insertCve.sources ?? [],
+      primarySource: insertCve.primarySource ?? "nist",
+      sourceMetadata: insertCve.sourceMetadata ?? null,
+      sourceReliabilityScore: insertCve.sourceReliabilityScore ?? 1.0,
+      deduplicationFingerprint: insertCve.deduplicationFingerprint ?? null,
+      duplicateIds: insertCve.duplicateIds ?? null,
+      crossSourceValidation: insertCve.crossSourceValidation ?? null,
+      lastSourceSync: insertCve.lastSourceSync ?? now,
+      sourceConflicts: insertCve.sourceConflicts ?? null
     };
     this.cves.set(id, cve);
     return cve;
