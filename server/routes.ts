@@ -7,6 +7,7 @@ import { GitHubService } from "./services/githubService";
 import { GoogleSheetsService } from "./services/googleSheetsService";
 import { advancedScoringService } from "./services/advancedScoringService";
 import { multiSourceDiscoveryService } from "./services/multiSourceDiscoveryService";
+import { dockerDeploymentService } from "./services/dockerDeploymentService";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const cveService = new CveService();
@@ -346,6 +347,226 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error discovering sources for CVE:', error);
       res.status(500).json({ message: 'Failed to discover sources for CVE' });
+    }
+  });
+
+  // Docker Deployment Automation API
+  app.get("/api/deployment/templates", async (req, res) => {
+    try {
+      const category = req.query.category as string;
+      
+      if (category) {
+        const templates = await dockerDeploymentService.getTemplatesForCategory(category as any);
+        res.json(templates);
+      } else {
+        const templates = await dockerDeploymentService.getAvailableTemplates();
+        res.json(templates);
+      }
+    } catch (error) {
+      console.error('Error fetching deployment templates:', error);
+      res.status(500).json({ message: 'Failed to fetch deployment templates' });
+    }
+  });
+
+  app.get("/api/deployment/templates/:templateId", async (req, res) => {
+    try {
+      const template = await dockerDeploymentService.getTemplate(req.params.templateId);
+      if (!template) {
+        return res.status(404).json({ message: 'Template not found' });
+      }
+      res.json(template);
+    } catch (error) {
+      console.error('Error fetching deployment template:', error);
+      res.status(500).json({ message: 'Failed to fetch deployment template' });
+    }
+  });
+
+  app.post("/api/cves/:id/deployment/analyze", async (req, res) => {
+    try {
+      const cve = await storage.getCve(req.params.id);
+      if (!cve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+
+      const analysis = await dockerDeploymentService.analyzeDeploymentPossibilities(cve);
+      
+      res.json({
+        cveId: cve.cveId,
+        ...analysis,
+        analysisTime: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error analyzing deployment possibilities for CVE:', error);
+      res.status(500).json({ message: 'Failed to analyze deployment possibilities' });
+    }
+  });
+
+  app.post("/api/cves/:id/deployment/generate", async (req, res) => {
+    try {
+      const cve = await storage.getCve(req.params.id);
+      if (!cve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+
+      const deployment = await dockerDeploymentService.generateAutomatedDeployment(cve);
+      
+      if (!deployment) {
+        return res.status(404).json({ 
+          message: 'No suitable deployment template found for this CVE',
+          cveId: cve.cveId,
+          reason: 'CVE may not be suitable for automated Docker deployment'
+        });
+      }
+
+      res.json(deployment);
+    } catch (error) {
+      console.error('Error generating automated deployment for CVE:', error);
+      res.status(500).json({ message: 'Failed to generate automated deployment' });
+    }
+  });
+
+  app.get("/api/cves/:id/deployment", async (req, res) => {
+    try {
+      const cve = await storage.getCve(req.params.id);
+      if (!cve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+
+      const deploymentPackage = await dockerDeploymentService.generateDeploymentPackage(cve);
+      
+      res.json({
+        cveId: cve.cveId,
+        ...deploymentPackage,
+        generatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error generating deployment package for CVE:', error);
+      res.status(500).json({ message: 'Failed to generate deployment package' });
+    }
+  });
+
+  app.post("/api/cves/:id/deployment/scripts", async (req, res) => {
+    try {
+      const cve = await storage.getCve(req.params.id);
+      if (!cve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+
+      const { scriptType = 'all' } = req.body;
+      const deployment = await dockerDeploymentService.generateAutomatedDeployment(cve);
+      
+      if (!deployment) {
+        return res.status(404).json({ 
+          message: 'No deployment available for this CVE',
+          cveId: cve.cveId
+        });
+      }
+
+      const scripts = {
+        deployment: scriptType === 'all' || scriptType === 'deployment' ? deployment.deploymentScript : null,
+        testing: scriptType === 'all' || scriptType === 'testing' ? deployment.testingScript : null,
+        cleanup: scriptType === 'all' || scriptType === 'cleanup' ? deployment.cleanupScript : null
+      };
+
+      res.json({
+        cveId: cve.cveId,
+        scripts,
+        instructions: deployment.customInstructions,
+        resourceRequirements: deployment.resourceRequirements
+      });
+    } catch (error) {
+      console.error('Error generating deployment scripts for CVE:', error);
+      res.status(500).json({ message: 'Failed to generate deployment scripts' });
+    }
+  });
+
+  // Docker deployment analytics endpoint
+  app.get("/api/deployment/analytics", async (req, res) => {
+    try {
+      const cves = await storage.getCves();
+      const analytics = {
+        totalCves: cves.length,
+        deployableCves: 0,
+        templateUsage: {} as Record<string, number>,
+        complexityDistribution: {
+          simple: 0,
+          moderate: 0,
+          complex: 0
+        },
+        categoryDeployability: {} as Record<string, { total: number; deployable: number }>,
+        averageSetupTime: '0 minutes',
+        topDeployableCves: [] as any[]
+      };
+
+      const deployableAnalysis = [];
+
+      for (const cve of cves) {
+        try {
+          const analysis = await dockerDeploymentService.analyzeDeploymentPossibilities(cve);
+          
+          if (analysis.isDeployable && analysis.recommendedTemplate) {
+            analytics.deployableCves++;
+            
+            // Track template usage
+            const templateId = analysis.recommendedTemplate.id;
+            analytics.templateUsage[templateId] = (analytics.templateUsage[templateId] || 0) + 1;
+            
+            // Track complexity
+            const complexity = analysis.recommendedTemplate.complexity;
+            analytics.complexityDistribution[complexity]++;
+            
+            deployableAnalysis.push({
+              cveId: cve.cveId,
+              category: cve.category,
+              severity: cve.severity,
+              cvssScore: cve.cvssScore,
+              template: analysis.recommendedTemplate.name,
+              complexity,
+              estimatedTime: analysis.recommendedTemplate.estimatedSetupTime
+            });
+          }
+
+          // Track by category
+          const category = cve.category || 'Unknown';
+          if (!analytics.categoryDeployability[category]) {
+            analytics.categoryDeployability[category] = { total: 0, deployable: 0 };
+          }
+          analytics.categoryDeployability[category].total++;
+          if (analysis.isDeployable) {
+            analytics.categoryDeployability[category].deployable++;
+          }
+        } catch (error) {
+          console.warn(`Failed to analyze deployment for CVE ${cve.cveId}:`, error);
+        }
+      }
+
+      // Calculate average setup time (simplified)
+      const timeEstimates = deployableAnalysis.map(d => {
+        const timeStr = d.estimatedTime;
+        const match = timeStr.match(/(\d+)-?(\d+)?/);
+        return match ? parseInt(match[1]) : 10;
+      });
+      const avgTime = timeEstimates.length > 0 
+        ? Math.round(timeEstimates.reduce((a, b) => a + b, 0) / timeEstimates.length)
+        : 0;
+      analytics.averageSetupTime = `${avgTime} minutes`;
+
+      // Top deployable CVEs by CVSS score
+      analytics.topDeployableCves = deployableAnalysis
+        .filter(d => d.cvssScore)
+        .sort((a, b) => (b.cvssScore || 0) - (a.cvssScore || 0))
+        .slice(0, 10)
+        .map(d => ({
+          cveId: d.cveId,
+          cvssScore: d.cvssScore,
+          template: d.template,
+          estimatedTime: d.estimatedTime
+        }));
+
+      res.json(analytics);
+    } catch (error) {
+      console.error('Error generating deployment analytics:', error);
+      res.status(500).json({ message: 'Failed to generate deployment analytics' });
     }
   });
 
