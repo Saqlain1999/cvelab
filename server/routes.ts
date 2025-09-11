@@ -198,7 +198,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           healthySources: reliabilityReport.summary.healthySources,
           averageReliability: reliabilityReport.summary.averageReliability,
           sourcesNeedingAttention: reliabilityReport.summary.sourcesNeedingAttention,
-          topSources: reliabilityReport.sourceRankings.slice(0, 5).map(source => ({
+          topSources: reliabilityReport.sourceRankings.slice(0, 5).map((source: any) => ({
             name: source.displayName,
             reliability: source.finalReliabilityScore,
             successRate: source.successRate,
@@ -248,8 +248,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           sources: cve.sources || ['nist'], // Default to NIST for legacy data
           primarySource: cve.primarySource || 'nist',
           reliability: cve.sourceReliabilityScore || 0.95,
-          hasConflicts: !!(cve.sourceConflicts && cve.sourceConflicts.length > 0),
-          validationStatus: cve.crossSourceValidation?.validationStatus || 'single_source',
+          hasConflicts: !!(cve.sourceConflicts && Array.isArray(cve.sourceConflicts) && cve.sourceConflicts.length > 0),
+          validationStatus: (cve.crossSourceValidation as any)?.validationStatus || 'single_source',
           deduplicationFingerprint: cve.deduplicationFingerprint
         }
       }));
@@ -303,7 +303,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const conflicts = {
         cveId: cve.cveId,
-        hasConflicts: !!(cve.sourceConflicts && cve.sourceConflicts.length > 0),
+        hasConflicts: !!(cve.sourceConflicts && Array.isArray(cve.sourceConflicts) && cve.sourceConflicts.length > 0),
         conflicts: cve.sourceConflicts || [],
         crossSourceValidation: cve.crossSourceValidation || {
           totalSources: 1,

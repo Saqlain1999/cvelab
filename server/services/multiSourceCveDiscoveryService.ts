@@ -364,7 +364,7 @@ export class MultiSourceCveDiscoveryService {
     // 2. Process each duplicate group and create enriched CVE data
     const uniqueCves: EnrichedCveData[] = [];
     
-    for (const [fingerprint, group] of duplicateGroups) {
+    for (const [fingerprint, group] of Array.from(duplicateGroups)) {
       if (group.length === 1) {
         // Single source CVE - convert to enriched format
         const enriched = this.createEnrichedCveFromSingle(group[0], fingerprint);
@@ -482,9 +482,9 @@ export class MultiSourceCveDiscoveryService {
 
     // Build consolidated metadata
     const consolidatedMetadata: ConsolidatedMetadata = {
-      allReferences: [...new Set(group.flatMap(cve => cve.references || []))],
-      allCweIds: [...new Set(group.flatMap(cve => cve.cweIds || []))],
-      allAffectedProducts: [...new Set(group.flatMap(cve => cve.affectedProducts || []))],
+      allReferences: Array.from(new Set(group.flatMap(cve => cve.references || []))),
+      allCweIds: Array.from(new Set(group.flatMap(cve => cve.cweIds || []))),
+      allAffectedProducts: Array.from(new Set(group.flatMap(cve => cve.affectedProducts || []))),
       sourceSpecificData: group.reduce((acc, cve) => {
         acc[cve.source] = cve.sourceMetadata;
         return acc;
@@ -559,7 +559,7 @@ export class MultiSourceCveDiscoveryService {
         };
 
         // Build values mapping
-        for (const [value, entry] of values) {
+        for (const [value, entry] of Array.from(values)) {
           for (const source of entry.sources) {
             conflict.values[source] = value;
           }
@@ -761,7 +761,9 @@ export class MultiSourceCveDiscoveryService {
     // Prevent unlimited cache growth
     if (this.cache.size > this.CONFIG.deduplicationCacheSize) {
       const oldestKey = this.cache.keys().next().value;
-      this.cache.delete(oldestKey);
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+      }
     }
   }
 }
