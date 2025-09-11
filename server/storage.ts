@@ -109,7 +109,8 @@ export class MemStorage implements IStorage {
         dockerInfo: { available: true },
         fingerprintInfo: { testable: true },
         exploitabilityScore: 7.5,
-        labSuitabilityScore: 8.9
+        labSuitabilityScore: 8.9,
+        discoveryMetadata: null
       },
       {
         cveId: "CVE-2024-4577",
@@ -131,7 +132,8 @@ export class MemStorage implements IStorage {
         dockerInfo: { available: true },
         fingerprintInfo: { testable: true },
         exploitabilityScore: 9.2,
-        labSuitabilityScore: 9.5
+        labSuitabilityScore: 9.5,
+        discoveryMetadata: null
       },
       {
         cveId: "CVE-2024-3400",
@@ -153,7 +155,8 @@ export class MemStorage implements IStorage {
         dockerInfo: null,
         fingerprintInfo: { testable: true },
         exploitabilityScore: 9.8,
-        labSuitabilityScore: 7.2
+        labSuitabilityScore: 7.2,
+        discoveryMetadata: null
       }
     ];
 
@@ -280,7 +283,8 @@ export class MemStorage implements IStorage {
       isDockerDeployable: insertCve.isDockerDeployable ?? null,
       isCurlTestable: insertCve.isCurlTestable ?? null,
       dockerInfo: insertCve.dockerInfo ?? null,
-      fingerprintInfo: insertCve.fingerprintInfo ?? null
+      fingerprintInfo: insertCve.fingerprintInfo ?? null,
+      discoveryMetadata: insertCve.discoveryMetadata ?? null
     };
     this.cves.set(id, cve);
     return cve;

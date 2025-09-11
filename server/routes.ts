@@ -638,6 +638,377 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // CVE Enrichment and Duplicate Detection API
+  app.post("/api/cves/:id/enrich", async (req, res) => {
+    try {
+      const cve = await storage.getCve(req.params.id);
+      if (!cve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+
+      const enrichmentStart = Date.now();
+      
+      // Comprehensive enrichment combining all discovery capabilities
+      const [sourcesResult, deploymentAnalysis, scoringResult] = await Promise.allSettled([
+        multiSourceDiscoveryService.discoverAllSources(cve.cveId, {
+          query: cve.cveId,
+          maxResults: 50,
+          includeDockerInfo: true,
+          includeVideoTranscripts: false
+        }),
+        dockerDeploymentService.analyzeDeploymentPossibilities(cve),
+        Promise.resolve({
+          advanced: cveService.calculateAdvancedLabScore(cve),
+          basic: cveService.calculateBasicLabScore(cve)
+        })
+      ]);
+
+      // Process results and update CVE
+      let enrichedCve = { ...cve };
+      const enrichmentLog = [];
+
+      // Update sources and POC information
+      if (sourcesResult.status === 'fulfilled') {
+        const sources = sourcesResult.value;
+        enrichmentLog.push(`Found ${sources.totalSources} sources across ${Object.keys(sources.sourceBreakdown).length} platforms`);
+        
+        // Update POC availability
+        if (sources.sources.length > 0 && !enrichedCve.hasPublicPoc) {
+          enrichedCve.hasPublicPoc = true;
+          enrichmentLog.push('Updated POC availability to true');
+        }
+        
+        // Update POC URLs
+        const newPocUrls = sources.sources.map(s => s.url);
+        enrichedCve.pocUrls = [...(enrichedCve.pocUrls || []), ...newPocUrls];
+        
+        // Update discovery metadata
+        enrichedCve.discoveryMetadata = {
+          lastEnriched: new Date().toISOString(),
+          sourcesFound: sources.totalSources,
+          sourceBreakdown: sources.sourceBreakdown,
+          topSources: sources.sources.slice(0, 5)
+        };
+      }
+
+      // Update deployment information
+      if (deploymentAnalysis.status === 'fulfilled') {
+        const deployment = deploymentAnalysis.value;
+        enrichmentLog.push(`Analyzed deployment possibilities: ${deployment.alternativeOptions?.length || 0} options found`);
+        
+        // Update Docker deployability
+        if (deployment.isDeployable && deployment.recommendedTemplate && !enrichedCve.isDockerDeployable) {
+          enrichedCve.isDockerDeployable = true;
+          enrichmentLog.push('Updated Docker deployability to true');
+        }
+        
+        // Update fingerprinting capabilities based on deployment analysis
+        if (deployment.isDeployable && !enrichedCve.isCurlTestable) {
+          enrichedCve.isCurlTestable = true;
+          enrichmentLog.push('Updated curl testability to true');
+        }
+        
+        // Update Docker info with template information
+        if (deployment.recommendedTemplate) {
+          enrichedCve.dockerInfo = {
+            available: true,
+            templateId: deployment.recommendedTemplate.id,
+            complexity: deployment.recommendedTemplate.complexity
+          } as any;
+        }
+      }
+
+      // Update scores
+      if (scoringResult.status === 'fulfilled') {
+        const scores = scoringResult.value;
+        enrichedCve.labSuitabilityScore = scores.advanced.score;
+        enrichedCve.exploitabilityScore = scores.basic;
+        enrichedCve.scoringBreakdown = scores.advanced.breakdown;
+        enrichmentLog.push(`Updated lab suitability score to ${scores.advanced.score}`);
+      }
+
+      // Save enriched CVE - only pass the fields that need updating
+      const updates: any = {};
+      if (enrichedCve.hasPublicPoc !== cve.hasPublicPoc) updates.hasPublicPoc = enrichedCve.hasPublicPoc;
+      if (enrichedCve.isDockerDeployable !== cve.isDockerDeployable) updates.isDockerDeployable = enrichedCve.isDockerDeployable;
+      if (enrichedCve.isCurlTestable !== cve.isCurlTestable) updates.isCurlTestable = enrichedCve.isCurlTestable;
+      if (enrichedCve.pocUrls) updates.pocUrls = enrichedCve.pocUrls;
+      if (enrichedCve.dockerInfo) updates.dockerInfo = enrichedCve.dockerInfo;
+      if (enrichedCve.labSuitabilityScore) updates.labSuitabilityScore = enrichedCve.labSuitabilityScore;
+      if (enrichedCve.exploitabilityScore) updates.exploitabilityScore = enrichedCve.exploitabilityScore;
+      if (enrichedCve.scoringBreakdown) updates.scoringBreakdown = enrichedCve.scoringBreakdown;
+      if (enrichedCve.discoveryMetadata) updates.discoveryMetadata = enrichedCve.discoveryMetadata;
+
+      const updatedCve = await storage.updateCve(cve.id, updates);
+      
+      const enrichmentTime = Date.now() - enrichmentStart;
+      
+      res.json({
+        cveId: cve.cveId,
+        enrichmentTime,
+        updatedFields: enrichmentLog,
+        enrichedCve: updatedCve,
+        summary: {
+          sourcesFound: sourcesResult.status === 'fulfilled' ? sourcesResult.value.totalSources : 0,
+          deploymentOptionsFound: deploymentAnalysis.status === 'fulfilled' ? deploymentAnalysis.value.alternativeOptions?.length || 0 : 0,
+          pocAvailable: enrichedCve.hasPublicPoc,
+          dockerDeployable: enrichedCve.isDockerDeployable,
+          curlTestable: enrichedCve.isCurlTestable,
+          labSuitabilityScore: enrichedCve.labSuitabilityScore
+        }
+      });
+    } catch (error) {
+      console.error('Error enriching CVE:', error);
+      res.status(500).json({ message: 'Failed to enrich CVE' });
+    }
+  });
+
+  // Bulk CVE enrichment API
+  app.post("/api/cves/enrich/bulk", async (req, res) => {
+    try {
+      const { cveIds, maxConcurrent = 3 } = req.body;
+      
+      if (!cveIds || !Array.isArray(cveIds)) {
+        return res.status(400).json({ message: 'cveIds array is required' });
+      }
+
+      const enrichmentResults: any[] = [];
+      const errors: any[] = [];
+
+      // Process CVEs in batches to avoid rate limiting
+      for (let i = 0; i < cveIds.length; i += maxConcurrent) {
+        const batch = cveIds.slice(i, i + maxConcurrent);
+        
+        const batchPromises = batch.map(async (cveId) => {
+          try {
+            const cve = await storage.getCve(cveId);
+            if (!cve) {
+              errors.push({ cveId, error: 'CVE not found' });
+              return null;
+            }
+
+            // Simplified enrichment for bulk processing
+            const sources = await multiSourceDiscoveryService.discoverAllSources(cve.cveId, {
+              query: cve.cveId,
+              maxResults: 20,
+              includeDockerInfo: true
+            });
+
+            let updated = false;
+            const updates: any = {};
+
+            if (sources.sources.length > 0 && !cve.hasPublicPoc) {
+              updates.hasPublicPoc = true;
+              updates.pocUrls = [...(cve.pocUrls || []), ...sources.sources.map(s => s.url)];
+              updated = true;
+            }
+
+            if (sources.dockerInfo.length > 0 && !cve.isDockerDeployable) {
+              updates.isDockerDeployable = true;
+              updated = true;
+            }
+
+            if (updated) {
+              updates.discoveryMetadata = {
+                lastEnriched: new Date().toISOString(),
+                sourcesFound: sources.totalSources,
+                sourceBreakdown: sources.sourceBreakdown
+              };
+              
+              await storage.updateCve(cve.id, updates);
+              return { cveId: cve.cveId, updated: true, sourcesFound: sources.totalSources };
+            } else {
+              return { cveId: cve.cveId, updated: false, sourcesFound: sources.totalSources };
+            }
+          } catch (error) {
+            errors.push({ cveId, error: error instanceof Error ? error.message : 'Unknown error' });
+            return null;
+          }
+        });
+
+        const batchResults = await Promise.allSettled(batchPromises);
+        batchResults.forEach(result => {
+          if (result.status === 'fulfilled' && result.value) {
+            enrichmentResults.push(result.value);
+          }
+        });
+
+        // Add delay between batches to respect rate limits
+        if (i + maxConcurrent < cveIds.length) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+
+      res.json({
+        totalProcessed: cveIds.length,
+        successful: enrichmentResults.length,
+        errors: errors.length,
+        results: enrichmentResults,
+        errorList: errors
+      });
+    } catch (error) {
+      console.error('Error in bulk CVE enrichment:', error);
+      res.status(500).json({ message: 'Failed to perform bulk CVE enrichment' });
+    }
+  });
+
+  // Duplicate detection API
+  app.get("/api/cves/duplicates", async (req, res) => {
+    try {
+      const allCves = await storage.getCves();
+      const duplicateGroups = [];
+      const processed = new Set();
+
+      for (const cve of allCves) {
+        if (processed.has(cve.id)) continue;
+
+        const potentialDuplicates = allCves.filter(other => 
+          other.id !== cve.id && 
+          !processed.has(other.id) &&
+          (
+            other.cveId === cve.cveId || // Same CVE ID
+            (other.description === cve.description && other.description.length > 50) || // Same description
+            (other.affectedProduct === cve.affectedProduct && 
+             other.cvssScore === cve.cvssScore && 
+             Math.abs(new Date(other.publishedDate).getTime() - new Date(cve.publishedDate).getTime()) < 86400000) // Same product, score, and within 24 hours
+          )
+        );
+
+        if (potentialDuplicates.length > 0) {
+          const group = [cve, ...potentialDuplicates];
+          duplicateGroups.push({
+            groupId: `dup_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            cves: group.map(c => ({
+              id: c.id,
+              cveId: c.cveId,
+              description: c.description.substring(0, 100) + '...',
+              publishedDate: c.publishedDate,
+              cvssScore: c.cvssScore,
+              hasPublicPoc: c.hasPublicPoc,
+              isDockerDeployable: c.isDockerDeployable,
+              sourcesCount: c.pocUrls?.length || 0
+            })),
+            duplicateReason: potentialDuplicates[0].cveId === cve.cveId ? 'Same CVE ID' : 
+                            potentialDuplicates[0].description === cve.description ? 'Same description' : 'Similar metadata'
+          });
+
+          // Mark all as processed
+          group.forEach(c => processed.add(c.id));
+        } else {
+          processed.add(cve.id);
+        }
+      }
+
+      res.json({
+        totalCves: allCves.length,
+        duplicateGroups: duplicateGroups.length,
+        groups: duplicateGroups
+      });
+    } catch (error) {
+      console.error('Error detecting duplicates:', error);
+      res.status(500).json({ message: 'Failed to detect duplicates' });
+    }
+  });
+
+  // Merge duplicate CVEs API
+  app.post("/api/cves/duplicates/merge", async (req, res) => {
+    try {
+      const { primaryCveId, duplicateCveIds, mergeStrategy = 'union' } = req.body;
+      
+      if (!primaryCveId || !duplicateCveIds || !Array.isArray(duplicateCveIds)) {
+        return res.status(400).json({ message: 'primaryCveId and duplicateCveIds array are required' });
+      }
+
+      const primaryCve = await storage.getCve(primaryCveId);
+      if (!primaryCve) {
+        return res.status(404).json({ message: 'Primary CVE not found' });
+      }
+
+      const duplicateCves = await storage.getCveByIds(duplicateCveIds);
+      const mergedData: any = { ...primaryCve };
+      const mergeLog = [];
+
+      // Merge POC URLs
+      const allPocUrls = new Set([...(primaryCve.pocUrls || [])]);
+      duplicateCves.forEach(dup => {
+        dup.pocUrls?.forEach(url => allPocUrls.add(url));
+      });
+      mergedData.pocUrls = Array.from(allPocUrls);
+      mergeLog.push(`Merged POC URLs: ${mergedData.pocUrls.length} total`);
+
+      // Merge boolean flags (use OR logic)
+      if (!mergedData.hasPublicPoc) {
+        mergedData.hasPublicPoc = duplicateCves.some(dup => dup.hasPublicPoc);
+        if (mergedData.hasPublicPoc) mergeLog.push('Updated hasPublicPoc to true');
+      }
+
+      if (!mergedData.isDockerDeployable) {
+        mergedData.isDockerDeployable = duplicateCves.some(dup => dup.isDockerDeployable);
+        if (mergedData.isDockerDeployable) mergeLog.push('Updated isDockerDeployable to true');
+      }
+
+      if (!mergedData.isCurlTestable) {
+        mergedData.isCurlTestable = duplicateCves.some(dup => dup.isCurlTestable);
+        if (mergedData.isCurlTestable) mergeLog.push('Updated isCurlTestable to true');
+      }
+
+      // Merge scoring (use highest scores)
+      const allScores = [primaryCve, ...duplicateCves]
+        .map(cve => ({
+          exploitability: cve.exploitabilityScore || 0,
+          labSuitability: cve.labSuitabilityScore || 0
+        }));
+      
+      mergedData.exploitabilityScore = Math.max(...allScores.map(s => s.exploitability));
+      mergedData.labSuitabilityScore = Math.max(...allScores.map(s => s.labSuitability));
+      mergeLog.push(`Updated scores: exploitability=${mergedData.exploitabilityScore}, labSuitability=${mergedData.labSuitabilityScore}`);
+
+      // Merge discovery metadata
+      const allMetadata = [primaryCve, ...duplicateCves]
+        .map(cve => cve.discoveryMetadata)
+        .filter(Boolean);
+      
+      if (allMetadata.length > 0) {
+        mergedData.discoveryMetadata = {
+          lastMerged: new Date().toISOString(),
+          mergedFrom: duplicateCveIds,
+          combinedSources: allMetadata.reduce((total, meta: any) => total + (meta.sourcesFound || 0), 0),
+          mergeStrategy
+        };
+        mergeLog.push('Updated discovery metadata with merge information');
+      }
+
+      // Update the primary CVE
+      const updatedCve = await storage.updateCve(primaryCveId, mergedData);
+
+      // Delete duplicate CVEs
+      for (const dupId of duplicateCveIds) {
+        await storage.deleteCve(dupId);
+      }
+      mergeLog.push(`Deleted ${duplicateCveIds.length} duplicate CVEs`);
+
+      res.json({
+        primaryCveId,
+        mergedCve: updatedCve,
+        mergeLog,
+        duplicatesRemoved: duplicateCveIds.length,
+        summary: {
+          totalPocUrls: mergedData.pocUrls?.length || 0,
+          hasPublicPoc: mergedData.hasPublicPoc,
+          isDockerDeployable: mergedData.isDockerDeployable,
+          isCurlTestable: mergedData.isCurlTestable,
+          finalScores: {
+            exploitability: mergedData.exploitabilityScore,
+            labSuitability: mergedData.labSuitabilityScore
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error merging duplicate CVEs:', error);
+      res.status(500).json({ message: 'Failed to merge duplicate CVEs' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

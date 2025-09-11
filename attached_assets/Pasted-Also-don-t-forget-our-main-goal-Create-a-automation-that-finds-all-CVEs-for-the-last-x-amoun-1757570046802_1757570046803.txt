@@ -1,0 +1,29 @@
+Also don't forget our main goal:
+
+"
+"Create a automation that finds all CVEs for the last x amount of years that:
+
+Interesting and practical for setting up in a lab environment.
+Deployable in Docker if possible (otherwise ISO/VMware images are acceptable).
+Have a public PoC, exploit, or reproducibility resource available.
+Affect widely used or important tools, services, or software (e.g., CRMs, web services, DNS, proxies, firewalls, etc.).
+Fingerprintable with curl or nmap (HTTP responses, banners, protocols, etc.).
+Also include vulnerabilities in:
+
+CMS/framework ecosystems like WordPress (plugins/themes), Joomla, Drupal, Laravel, React, Next.js, Node.js servers.
+Web servers and infrastructure such as Apache, Nginx, and similar.
+Important Requirement:
+The lab target must be exploitable without requiring prior knowledge of the system (e.g., no assumptions about custom configurations, users, or files). Avoid CVEs that need attacker-controlled setup or modifications to the target itself. Vulnerabilities should be testable with validation scripts, Nuclei templates, or public PoCs."
+
+I would also want this application to have multiple poc's that are found around the web to be present for every CVE, and the docker deployment thing would mean that if it is found around the web the app would give us a easy way to deploy it locally by giving us a basic structure of it if not that it would just tell us it is dockerable you know?
+
+I mean most of this can be done using intensive google search and hopping on to different sites, checking medium articles checking dockerhub and github repos for pocs or softwares and watching youtube videos to understand the vulnerability or target setup or the software/tool/app/service setup itself you know, the whole purpose is to eliminate that manual effort
+
+I also want you to do your proper research on implementing this fetching CVE's and their pocs and them being fingerprintable using a basic curl or get request or running nmap on it so that it gives it away, either the app name, vendor name, its verion or its indicators are there etc you knwo and easy to setup using docker or isos or a vmware ovf file etc and then implement the necessary parts in the app
+
+Another thing would be to eliminate duplicates and if a cve found is already present in our database we should check our db for things it is missing like all the other factors so for example a cve found today might be updated in a few days or might get more pocs or more info around the web about it so we could check for that for the already present ones
+"
+
+If we're doing all of that in this app then we're good.
+
+like we have multiple CVE sources where we find cves from that have pocs, docker things, fingerprinting things doable right?
