@@ -63,6 +63,8 @@ export const insertCveScanSchema = createInsertSchema(cveScans).omit({
   id: true,
   startedAt: true,
   completedAt: true,
+}).extend({
+  completedAt: z.date().nullable().optional(),
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

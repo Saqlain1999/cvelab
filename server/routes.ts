@@ -112,7 +112,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success, message: `Exported ${cves.length} CVEs to Google Sheets` });
     } catch (error) {
       console.error('Error exporting to Google Sheets:', error);
-      res.status(500).json({ message: 'Failed to export to Google Sheets', error: error.message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ message: 'Failed to export to Google Sheets', error: errorMessage });
     }
   });
 
@@ -123,7 +124,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ spreadsheetId, url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}` });
     } catch (error) {
       console.error('Error creating Google Sheet:', error);
-      res.status(500).json({ message: 'Failed to create Google Sheet', error: error.message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ message: 'Failed to create Google Sheet', error: errorMessage });
     }
   });
 
@@ -195,17 +197,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalFound,
         labDeployable,
         withPoc,
-        criticalSeverity,
-        completedAt: new Date()
+        criticalSeverity
       });
 
       console.log(`CVE scan completed: ${totalFound} total, ${labDeployable} deployable, ${withPoc} with PoC`);
     } catch (error) {
       console.error('CVE scan failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       await storage.updateCveScan(scanId, {
         status: 'failed',
-        errorMessage: error.message,
-        completedAt: new Date()
+        errorMessage
       });
     }
   }

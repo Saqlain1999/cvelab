@@ -140,10 +140,20 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const now = new Date();
     const cve: Cve = { 
-      ...insertCve, 
+      ...insertCve,
       id,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      cvssScore: insertCve.cvssScore ?? null,
+      cvssVector: insertCve.cvssVector ?? null,
+      affectedProduct: insertCve.affectedProduct ?? null,
+      affectedVersions: insertCve.affectedVersions ?? null,
+      attackVector: insertCve.attackVector ?? null,
+      technology: insertCve.technology ?? null,
+      category: insertCve.category ?? null,
+      pocUrls: insertCve.pocUrls ?? null,
+      exploitabilityScore: insertCve.exploitabilityScore ?? null,
+      labSuitabilityScore: insertCve.labSuitabilityScore ?? null
     };
     this.cves.set(id, cve);
     return cve;
@@ -179,7 +189,13 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const now = new Date();
     const scan: CveScan = { 
-      ...insertScan, 
+      timeframeYears: insertScan.timeframeYears || 3,
+      status: insertScan.status || 'pending',
+      totalFound: insertScan.totalFound ?? 0,
+      labDeployable: insertScan.labDeployable ?? 0,
+      withPoc: insertScan.withPoc ?? 0,
+      criticalSeverity: insertScan.criticalSeverity ?? 0,
+      errorMessage: insertScan.errorMessage ?? null,
       id,
       startedAt: now,
       completedAt: null
@@ -192,7 +208,11 @@ export class MemStorage implements IStorage {
     const existing = this.cveScans.get(id);
     if (!existing) return undefined;
     
-    const updated: CveScan = { ...existing, ...updates };
+    const updated: CveScan = { 
+      ...existing, 
+      ...updates,
+      completedAt: updates.status === 'completed' || updates.status === 'failed' ? new Date() : existing.completedAt
+    };
     this.cveScans.set(id, updated);
     return updated;
   }

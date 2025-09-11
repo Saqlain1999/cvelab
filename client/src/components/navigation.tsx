@@ -25,8 +25,8 @@ export function Navigation() {
       <nav className="flex-1 p-4 space-y-2" data-testid="nav-menu">
         {navItems.map((item) => (
           <Link key={item.path} href={item.path}>
-            <a
-              className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+            <div
+              className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors cursor-pointer ${
                 item.active
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -35,7 +35,7 @@ export function Navigation() {
             >
               <item.icon className="w-4 h-4" />
               {item.label}
-            </a>
+            </div>
           </Link>
         ))}
         
