@@ -1,4 +1,11 @@
-import { type User, type InsertUser, type Cve, type InsertCve, type CveScan, type InsertCveScan } from "@shared/schema";
+import { 
+  type User, type InsertUser, 
+  type Cve, type InsertCve, 
+  type CveScan, type InsertCveScan,
+  type MonitoringConfig, type InsertMonitoringConfig,
+  type CveAlert, type InsertCveAlert,
+  type MonitoringRun, type InsertMonitoringRun
+} from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -17,6 +24,25 @@ export interface IStorage {
   getCveScans(): Promise<CveScan[]>;
   createCveScan(scan: InsertCveScan): Promise<CveScan>;
   updateCveScan(id: string, updates: Partial<InsertCveScan>): Promise<CveScan | undefined>;
+  
+  // Monitoring functionality
+  getMonitoringConfig(): Promise<MonitoringConfig | undefined>;
+  createMonitoringConfig(config: InsertMonitoringConfig): Promise<MonitoringConfig>;
+  updateMonitoringConfig(id: string, updates: Partial<InsertMonitoringConfig>): Promise<MonitoringConfig | undefined>;
+  
+  getCveAlert(id: string): Promise<CveAlert | undefined>;
+  getCveAlerts(filters?: { isRead?: boolean; isDismissed?: boolean; severity?: string[] }): Promise<CveAlert[]>;
+  createCveAlert(alert: InsertCveAlert): Promise<CveAlert>;
+  updateCveAlert(id: string, updates: Partial<InsertCveAlert>): Promise<CveAlert | undefined>;
+  markAlertAsRead(id: string): Promise<boolean>;
+  dismissAlert(id: string): Promise<boolean>;
+  getUnreadAlertsCount(): Promise<number>;
+  
+  getMonitoringRun(id: string): Promise<MonitoringRun | undefined>;
+  getMonitoringRuns(limit?: number): Promise<MonitoringRun[]>;
+  createMonitoringRun(run: InsertMonitoringRun): Promise<MonitoringRun>;
+  updateMonitoringRun(id: string, updates: Partial<InsertMonitoringRun>): Promise<MonitoringRun | undefined>;
+  getLastSuccessfulMonitoringRun(): Promise<MonitoringRun | undefined>;
   
   getCveStats(): Promise<CveStats>;
 }
@@ -45,11 +71,17 @@ export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private cves: Map<string, Cve>;
   private cveScans: Map<string, CveScan>;
+  private monitoringConfigs: Map<string, MonitoringConfig>;
+  private cveAlerts: Map<string, CveAlert>;
+  private monitoringRuns: Map<string, MonitoringRun>;
 
   constructor() {
     this.users = new Map();
     this.cves = new Map();
     this.cveScans = new Map();
+    this.monitoringConfigs = new Map();
+    this.cveAlerts = new Map();
+    this.monitoringRuns = new Map();
     
     // Add some sample CVE data for demonstration
     this.initializeSampleData();
@@ -242,7 +274,12 @@ export class MemStorage implements IStorage {
       category: insertCve.category ?? null,
       pocUrls: insertCve.pocUrls ?? null,
       exploitabilityScore: insertCve.exploitabilityScore ?? null,
-      labSuitabilityScore: insertCve.labSuitabilityScore ?? null
+      labSuitabilityScore: insertCve.labSuitabilityScore ?? null,
+      hasPublicPoc: insertCve.hasPublicPoc ?? null,
+      isDockerDeployable: insertCve.isDockerDeployable ?? null,
+      isCurlTestable: insertCve.isCurlTestable ?? null,
+      dockerInfo: insertCve.dockerInfo ?? null,
+      fingerprintInfo: insertCve.fingerprintInfo ?? null
     };
     this.cves.set(id, cve);
     return cve;
@@ -271,7 +308,11 @@ export class MemStorage implements IStorage {
 
   async getCveScans(): Promise<CveScan[]> {
     return Array.from(this.cveScans.values())
-      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+      .sort((a, b) => {
+        const aTime = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+        const bTime = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+        return bTime - aTime;
+      });
   }
 
   async createCveScan(insertScan: InsertCveScan): Promise<CveScan> {
@@ -315,6 +356,179 @@ export class MemStorage implements IStorage {
       withPoc: allCves.filter(cve => cve.hasPublicPoc).length,
       critical: allCves.filter(cve => cve.severity === 'CRITICAL').length
     };
+  }
+
+  // Monitoring Configuration Methods
+  async getMonitoringConfig(): Promise<MonitoringConfig | undefined> {
+    const configs = Array.from(this.monitoringConfigs.values());
+    return configs[0]; // Return the first/default config
+  }
+
+  async createMonitoringConfig(config: InsertMonitoringConfig): Promise<MonitoringConfig> {
+    const id = randomUUID();
+    const newConfig: MonitoringConfig = {
+      id,
+      isEnabled: config.isEnabled ?? null,
+      scanInterval: config.scanInterval ?? 'daily',
+      minSeverity: config.minSeverity ?? 'HIGH',
+      minCvssScore: config.minCvssScore ?? null,
+      technologiesOfInterest: config.technologiesOfInterest ?? null,
+      alertMethods: config.alertMethods ?? null,
+      webhookUrl: config.webhookUrl ?? null,
+      emailRecipients: config.emailRecipients ?? null,
+      lastUpdateAt: new Date()
+    };
+    this.monitoringConfigs.set(id, newConfig);
+    return newConfig;
+  }
+
+  async updateMonitoringConfig(id: string, updates: Partial<InsertMonitoringConfig>): Promise<MonitoringConfig | undefined> {
+    const config = this.monitoringConfigs.get(id);
+    if (!config) return undefined;
+    
+    const updatedConfig = { ...config, ...updates, lastUpdateAt: new Date() };
+    this.monitoringConfigs.set(id, updatedConfig);
+    return updatedConfig;
+  }
+
+  // CVE Alert Methods
+  async getCveAlert(id: string): Promise<CveAlert | undefined> {
+    return this.cveAlerts.get(id);
+  }
+
+  async getCveAlerts(filters?: { isRead?: boolean; isDismissed?: boolean; severity?: string[] }): Promise<CveAlert[]> {
+    let alerts = Array.from(this.cveAlerts.values());
+    
+    if (filters?.isRead !== undefined) {
+      alerts = alerts.filter(alert => alert.isRead === filters.isRead);
+    }
+    if (filters?.isDismissed !== undefined) {
+      alerts = alerts.filter(alert => alert.isDismissed === filters.isDismissed);
+    }
+    if (filters?.severity?.length) {
+      alerts = alerts.filter(alert => filters.severity!.includes(alert.severity));
+    }
+    
+    return alerts.sort((a, b) => {
+      const aTime = a.detectedAt ? new Date(a.detectedAt).getTime() : 0;
+      const bTime = b.detectedAt ? new Date(b.detectedAt).getTime() : 0;
+      return bTime - aTime;
+    });
+  }
+
+  async createCveAlert(alert: InsertCveAlert): Promise<CveAlert> {
+    const id = randomUUID();
+    const newAlert: CveAlert = {
+      id,
+      cveId: alert.cveId,
+      alertType: alert.alertType ?? 'new_cve',
+      severity: alert.severity,
+      description: alert.description,
+      pocUrls: alert.pocUrls ?? null,
+      isDockerDeployable: alert.isDockerDeployable ?? null,
+      labSuitabilityScore: alert.labSuitabilityScore ?? null,
+      isRead: alert.isRead ?? null,
+      isDismissed: alert.isDismissed ?? null,
+      metadata: alert.metadata ?? null,
+      detectedAt: new Date()
+    };
+    this.cveAlerts.set(id, newAlert);
+    return newAlert;
+  }
+
+  async updateCveAlert(id: string, updates: Partial<InsertCveAlert>): Promise<CveAlert | undefined> {
+    const alert = this.cveAlerts.get(id);
+    if (!alert) return undefined;
+    
+    const updatedAlert = { ...alert, ...updates };
+    this.cveAlerts.set(id, updatedAlert);
+    return updatedAlert;
+  }
+
+  async markAlertAsRead(id: string): Promise<boolean> {
+    const alert = this.cveAlerts.get(id);
+    if (!alert) return false;
+    
+    alert.isRead = true;
+    this.cveAlerts.set(id, alert);
+    return true;
+  }
+
+  async dismissAlert(id: string): Promise<boolean> {
+    const alert = this.cveAlerts.get(id);
+    if (!alert) return false;
+    
+    alert.isDismissed = true;
+    this.cveAlerts.set(id, alert);
+    return true;
+  }
+
+  async getUnreadAlertsCount(): Promise<number> {
+    const alerts = Array.from(this.cveAlerts.values());
+    return alerts.filter(alert => !alert.isRead && !alert.isDismissed).length;
+  }
+
+  // Monitoring Run Methods
+  async getMonitoringRun(id: string): Promise<MonitoringRun | undefined> {
+    return this.monitoringRuns.get(id);
+  }
+
+  async getMonitoringRuns(limit?: number): Promise<MonitoringRun[]> {
+    let runs = Array.from(this.monitoringRuns.values());
+    runs = runs.sort((a, b) => {
+      const aTime = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+      const bTime = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+      return bTime - aTime;
+    });
+    
+    if (limit) {
+      runs = runs.slice(0, limit);
+    }
+    
+    return runs;
+  }
+
+  async createMonitoringRun(run: InsertMonitoringRun): Promise<MonitoringRun> {
+    const id = randomUUID();
+    const newRun: MonitoringRun = {
+      id,
+      runType: run.runType ?? 'scheduled',
+      status: run.status ?? 'running',
+      newCvesFound: run.newCvesFound ?? null,
+      alertsGenerated: run.alertsGenerated ?? null,
+      errorMessage: run.errorMessage ?? null,
+      lastProcessedDate: run.lastProcessedDate ?? null,
+      startedAt: new Date(),
+      completedAt: null
+    };
+    this.monitoringRuns.set(id, newRun);
+    return newRun;
+  }
+
+  async updateMonitoringRun(id: string, updates: Partial<InsertMonitoringRun>): Promise<MonitoringRun | undefined> {
+    const run = this.monitoringRuns.get(id);
+    if (!run) return undefined;
+    
+    const updatedRun = { ...run, ...updates };
+    if (updates.status === 'completed' || updates.status === 'failed') {
+      updatedRun.completedAt = new Date();
+    }
+    
+    this.monitoringRuns.set(id, updatedRun);
+    return updatedRun;
+  }
+
+  async getLastSuccessfulMonitoringRun(): Promise<MonitoringRun | undefined> {
+    const runs = Array.from(this.monitoringRuns.values());
+    const completedRuns = runs
+      .filter(run => run.status === 'completed')
+      .sort((a, b) => {
+        const aTime = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+        const bTime = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+        return bTime - aTime;
+      });
+    
+    return completedRuns[0];
   }
 }
 

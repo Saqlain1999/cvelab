@@ -48,6 +48,46 @@ export const cveScans = pgTable("cve_scans", {
   errorMessage: text("error_message"),
 });
 
+export const monitoringConfig = pgTable("monitoring_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  isEnabled: boolean("is_enabled").default(true),
+  scanInterval: text("scan_interval").notNull().default("daily"), // 'hourly', 'daily', 'weekly'
+  minSeverity: text("min_severity").notNull().default("HIGH"), // 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'
+  minCvssScore: real("min_cvss_score").default(7.0),
+  technologiesOfInterest: text("technologies_of_interest").array(),
+  alertMethods: text("alert_methods").array().default(sql`'{email, dashboard}'`), // 'email', 'webhook', 'dashboard'
+  webhookUrl: text("webhook_url"),
+  emailRecipients: text("email_recipients").array(),
+  lastUpdateAt: timestamp("last_update_at").default(sql`now()`),
+});
+
+export const cveAlerts = pgTable("cve_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  cveId: text("cve_id").notNull(),
+  alertType: text("alert_type").notNull().default("new_cve"), // 'new_cve', 'poc_found', 'docker_available'
+  severity: text("severity").notNull(),
+  description: text("description").notNull(),
+  pocUrls: text("poc_urls").array(),
+  isDockerDeployable: boolean("is_docker_deployable").default(false),
+  labSuitabilityScore: real("lab_suitability_score"),
+  isRead: boolean("is_read").default(false),
+  isDismissed: boolean("is_dismissed").default(false),
+  detectedAt: timestamp("detected_at").default(sql`now()`),
+  metadata: jsonb("metadata"),
+});
+
+export const monitoringRuns = pgTable("monitoring_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  runType: text("run_type").notNull().default("scheduled"), // 'scheduled', 'manual'
+  status: text("status").notNull().default("running"), // 'running', 'completed', 'failed'
+  newCvesFound: real("new_cves_found").default(0),
+  alertsGenerated: real("alerts_generated").default(0),
+  startedAt: timestamp("started_at").default(sql`now()`),
+  completedAt: timestamp("completed_at"),
+  errorMessage: text("error_message"),
+  lastProcessedDate: timestamp("last_processed_date"),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -67,9 +107,31 @@ export const insertCveScanSchema = createInsertSchema(cveScans).omit({
   completedAt: z.date().nullable().optional(),
 });
 
+export const insertMonitoringConfigSchema = createInsertSchema(monitoringConfig).omit({
+  id: true,
+  lastUpdateAt: true,
+});
+
+export const insertCveAlertSchema = createInsertSchema(cveAlerts).omit({
+  id: true,
+  detectedAt: true,
+});
+
+export const insertMonitoringRunSchema = createInsertSchema(monitoringRuns).omit({
+  id: true,
+  startedAt: true,
+  completedAt: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type InsertCve = z.infer<typeof insertCveSchema>;
 export type Cve = typeof cves.$inferSelect;
 export type InsertCveScan = z.infer<typeof insertCveScanSchema>;
 export type CveScan = typeof cveScans.$inferSelect;
+export type InsertMonitoringConfig = z.infer<typeof insertMonitoringConfigSchema>;
+export type MonitoringConfig = typeof monitoringConfig.$inferSelect;
+export type InsertCveAlert = z.infer<typeof insertCveAlertSchema>;
+export type CveAlert = typeof cveAlerts.$inferSelect;
+export type InsertMonitoringRun = z.infer<typeof insertMonitoringRunSchema>;
+export type MonitoringRun = typeof monitoringRuns.$inferSelect;
