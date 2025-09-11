@@ -3,6 +3,7 @@
 
 // Import all source adapters
 import { BaseSourceAdapter } from './baseSourceAdapter';
+import { NistAdapter } from './nistAdapter';
 import { CveDetailsAdapter } from './cveDetailsAdapter';
 import { VulnersAdapter } from './vulnersAdapter';
 import { MitreAdapter } from './mitreAdapter';
@@ -11,6 +12,7 @@ import { ExploitDbAdapter } from './exploitDbAdapter';
 
 // Re-export for external use
 export { BaseSourceAdapter } from './baseSourceAdapter';
+export { NistAdapter } from './nistAdapter';
 export { CveDetailsAdapter } from './cveDetailsAdapter';
 export { VulnersAdapter } from './vulnersAdapter';
 export { MitreAdapter } from './mitreAdapter';
@@ -28,14 +30,17 @@ export type {
 /**
  * Factory function to create all available source adapters
  * This is used by the MultiSourceCveDiscoveryService to initialize all adapters
+ * Ordered by reliability and working status for prioritization
  */
 export function createAllSourceAdapters() {
   return [
-    new MitreAdapter(),        // Highest reliability - official source
-    new VulnersAdapter(),      // High performance API with good coverage
-    new CveDetailsAdapter(),   // Comprehensive database with historical data
-    new CirclAdapter(),        // Alternative API with good performance
-    new ExploitDbAdapter()     // Focus on exploitable CVEs
+    new NistAdapter(),         // PRIMARY: NIST NVD - most reliable official source
+    new MitreAdapter(),        // SECONDARY: MITRE with NVD fallback
+    new VulnersAdapter(),      // TERTIARY: Good API performance
+    new CirclAdapter(),        // QUATERNARY: Alternative API
+    // Temporarily disabled failing sources to focus on working ones
+    // new CveDetailsAdapter(),   // DISABLED: 403 errors blocking requests  
+    // new ExploitDbAdapter()     // DISABLED: 404 errors on API endpoints
   ];
 }
 
