@@ -108,12 +108,13 @@ export default function Dashboard() {
   });
 
   // Status management handlers
-  const handleStatusUpdate = async (cveId: string, updates: CveStatusUpdate) => {
+  const handleStatusUpdate = async (id: string, updates: CveStatusUpdate) => {
     try {
-      await statusUpdateMutation.mutateAsync({ cveId, updates });
+      await statusUpdateMutation.mutateAsync({ cveId: id, updates });
+      const cve = cves.find(c => c.id === id);
       toast({
         title: "Status Updated",
-        description: `CVE ${cveId} status has been updated successfully.`,
+        description: `CVE ${cve?.cveId || id} status has been updated successfully.`,
       });
     } catch (error) {
       toast({
@@ -124,12 +125,12 @@ export default function Dashboard() {
     }
   };
 
-  const handleBulkStatusUpdate = async (cveIds: string[], updates: CveStatusUpdate) => {
+  const handleBulkStatusUpdate = async (ids: string[], updates: CveStatusUpdate) => {
     try {
-      await bulkStatusUpdateMutation.mutateAsync({ cveIds, updates });
+      await bulkStatusUpdateMutation.mutateAsync({ cveIds: ids, updates });
       toast({
         title: "Bulk Update Complete",
-        description: `Successfully updated ${cveIds.length} CVEs.`,
+        description: `Successfully updated ${ids.length} CVEs.`,
       });
     } catch (error) {
       toast({

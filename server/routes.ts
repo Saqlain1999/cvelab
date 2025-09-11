@@ -31,6 +31,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: req.query.status ? String(req.query.status).split(',') : undefined,
         listCategory: req.query.listCategory ? String(req.query.listCategory).split(',') : undefined,
         isPriority: req.query.isPriority ? req.query.isPriority === 'true' : undefined,
+        hideDone: req.query.hideDone ? req.query.hideDone === 'true' : undefined,
         limit: req.query.limit ? Number(req.query.limit) : 50,
         offset: req.query.offset ? Number(req.query.offset) : 0
       };
@@ -311,17 +312,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Detailed enrichment metrics
       const enrichmentMetrics = {
-        sourceBreakdown: {},
+        sourceBreakdown: {} as Record<string, number>,
         avgSourcesPerCve: 0,
         fingerprintingSuccessRate: 0,
         dockerAnalysisSuccessRate: 0,
-        topTechnologies: {},
+        topTechnologies: {} as Record<string, number>,
         avgLabSuitabilityScore: 0,
-        enrichmentErrors: []
+        enrichmentErrors: [] as Array<{cveId: string; phase: string; error: string}>
       };
 
       // Process each CVE
       for (const cveData of nistCves) {
+        // Initialize Docker capability flags for this CVE
+        let hasActualDockerCapability = false;
+        let hasDockerHubContainers = false;
+        
         try {
           // Check if CVE is lab suitable
           if (!cveService.isLabSuitable(cveData)) {
@@ -361,10 +366,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               cveData.pocUrls = discoveryResults.sources.map(source => source.url);
               
               // Precise Docker deployability based on actual deployment capabilities
-              const hasActualDockerCapability = discoveryResults.dockerInfo.some(info => 
+              hasActualDockerCapability = discoveryResults.dockerInfo.some(info => 
                 (info.hasDockerfile || info.hasCompose) && info.deploymentComplexity !== 'complex'
               );
-              const hasDockerHubContainers = discoveryResults.sources.some(source => 
+              hasDockerHubContainers = discoveryResults.sources.some(source => 
                 source.type === 'dockerhub'
               );
               

@@ -68,6 +68,7 @@ export interface CveFilters {
   status?: string[];
   listCategory?: string[];
   isPriority?: boolean;
+  hideDone?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -311,6 +312,10 @@ export class MemStorage implements IStorage {
         results = results.filter(cve => cve.isPriority === filters.isPriority);
       }
       
+      if (filters.hideDone) {
+        results = results.filter(cve => cve.status !== 'done');
+      }
+      
       if (filters.offset) {
         results = results.slice(filters.offset);
       }
@@ -331,6 +336,11 @@ export class MemStorage implements IStorage {
       id,
       createdAt: now,
       updatedAt: now,
+      status: insertCve.status ?? "new",
+      statusUpdatedAt: now,
+      listCategory: insertCve.listCategory ?? null,
+      isPriority: insertCve.isPriority ?? null,
+      userNotes: insertCve.userNotes ?? null,
       cvssScore: insertCve.cvssScore ?? null,
       cvssVector: insertCve.cvssVector ?? null,
       affectedProduct: insertCve.affectedProduct ?? null,
@@ -727,7 +737,11 @@ export class MemStorage implements IStorage {
     const allCves = Array.from(this.cves.values());
     return allCves
       .filter(cve => cve.isPriority === true)
-      .sort((a, b) => new Date(b.statusUpdatedAt || b.updatedAt).getTime() - new Date(a.statusUpdatedAt || a.updatedAt).getTime());
+      .sort((a, b) => {
+        const aDate = a.statusUpdatedAt || a.updatedAt || new Date(0);
+        const bDate = b.statusUpdatedAt || b.updatedAt || new Date(0);
+        return new Date(bDate).getTime() - new Date(aDate).getTime();
+      });
   }
 }
 
