@@ -32,6 +32,7 @@ export const cves = pgTable("cves", {
   exploitabilityScore: real("exploitability_score"),
   labSuitabilityScore: real("lab_suitability_score"),
   scoringBreakdown: jsonb("scoring_breakdown"),
+  discoveryMetadata: jsonb("discovery_metadata"),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });

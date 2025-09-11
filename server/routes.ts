@@ -6,6 +6,7 @@ import { CveService } from "./services/cveService";
 import { GitHubService } from "./services/githubService";
 import { GoogleSheetsService } from "./services/googleSheetsService";
 import { advancedScoringService } from "./services/advancedScoringService";
+import { multiSourceDiscoveryService } from "./services/multiSourceDiscoveryService";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const cveService = new CveService();
@@ -155,21 +156,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           totalFound++;
 
-          // Search for PoCs on GitHub
-          const pocResults = await githubService.searchPoCs(cveData.cveId);
-          if (pocResults.length > 0) {
+          // Enhanced multi-source PoC discovery
+          console.log(`Discovering comprehensive sources for ${cveData.cveId}...`);
+          const discoveryResults = await multiSourceDiscoveryService.discoverAllSources(
+            cveData.cveId,
+            { 
+              query: `${cveData.cveId} poc exploit vulnerability`,
+              maxResults: 20,
+              includeDockerInfo: true
+            }
+          );
+
+          if (discoveryResults.sources.length > 0) {
             withPoc++;
             cveData.hasPublicPoc = true;
-            cveData.pocUrls = pocResults.map(repo => repo.html_url);
-
-            // Check Docker deployability
-            const isDockerDeployable = await Promise.all(
-              pocResults.slice(0, 3).map(repo => githubService.checkDockerDeployability(repo.html_url))
+            
+            // Collect URLs from all sources (GitHub, Medium, DockerHub, YouTube, etc.)
+            cveData.pocUrls = discoveryResults.sources.map(source => source.url);
+            
+            // Precise Docker deployability based on actual deployment capabilities
+            const hasActualDockerCapability = discoveryResults.dockerInfo.some(info => 
+              (info.hasDockerfile || info.hasCompose) && info.deploymentComplexity !== 'complex'
             );
-            cveData.isDockerDeployable = isDockerDeployable.some(Boolean);
+            const hasDockerHubContainers = discoveryResults.sources.some(source => 
+              source.type === 'dockerhub'
+            );
+            
+            // Only mark as deployable if there are actual Docker deployment capabilities
+            cveData.isDockerDeployable = hasActualDockerCapability || hasDockerHubContainers;
             if (cveData.isDockerDeployable) {
               labDeployable++;
             }
+
+            // Store comprehensive discovery metadata
+            cveData.discoveryMetadata = {
+              totalSources: discoveryResults.totalSources,
+              sourceBreakdown: discoveryResults.sourceBreakdown,
+              dockerInfo: discoveryResults.dockerInfo,
+              topSources: discoveryResults.sources.slice(0, 5).map(source => ({
+                type: source.type,
+                title: source.title,
+                url: source.url,
+                relevanceScore: source.relevanceScore
+              }))
+            };
+
+            console.log(`Found ${discoveryResults.totalSources} sources across ${Object.keys(discoveryResults.sourceBreakdown).length} platforms for ${cveData.cveId}`);
+          } else {
+            console.log(`No PoC sources found for ${cveData.cveId}`);
           }
 
           // Determine if curl/nmap testable (network services)
@@ -269,6 +303,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Multi-Source Discovery API
+  app.post("/api/cves/:id/sources", async (req, res) => {
+    try {
+      const cveId = req.params.id;
+      const options = {
+        query: req.body.query || cveId,
+        maxResults: req.body.maxResults || 20,
+        includeDockerInfo: req.body.includeDockerInfo || true,
+        includeVideoTranscripts: req.body.includeVideoTranscripts || false
+      };
+
+      const discoveryResults = await multiSourceDiscoveryService.discoverAllSources(cveId, options);
+      
+      res.json({
+        cveId,
+        ...discoveryResults,
+        searchTime: Date.now() - Date.now() // Placeholder for actual timing
+      });
+    } catch (error) {
+      console.error('Error discovering sources for CVE:', error);
+      res.status(500).json({ message: 'Failed to discover sources for CVE' });
+    }
+  });
+
+  app.get("/api/cves/:id/sources", async (req, res) => {
+    try {
+      const cveId = req.params.id;
+      const options = {
+        query: cveId,
+        maxResults: parseInt(req.query.maxResults as string) || 20,
+        includeDockerInfo: req.query.includeDockerInfo === 'true',
+        includeVideoTranscripts: req.query.includeVideoTranscripts === 'true'
+      };
+
+      const discoveryResults = await multiSourceDiscoveryService.discoverAllSources(cveId, options);
+      
+      res.json({
+        cveId,
+        ...discoveryResults
+      });
+    } catch (error) {
+      console.error('Error discovering sources for CVE:', error);
+      res.status(500).json({ message: 'Failed to discover sources for CVE' });
+    }
+  });
+
   // Batch scoring comparison for dashboard analytics
   app.get("/api/scoring/analytics", async (req, res) => {
     try {
@@ -304,10 +384,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         // Track by category
-        if (!analytics.distributionByCategory[cve.category]) {
+        if (cve.category && !analytics.distributionByCategory[cve.category]) {
           analytics.distributionByCategory[cve.category] = { count: 0, avgAdvanced: 0, avgBasic: 0 };
         }
-        analytics.distributionByCategory[cve.category].count++;
+        if (cve.category) {
+          analytics.distributionByCategory[cve.category].count++;
+        }
       }
 
       analytics.scoringComparison.averageAdvanced = Math.round((totalAdvanced / cves.length) * 10) / 10;

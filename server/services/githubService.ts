@@ -391,8 +391,11 @@ export class GitHubService {
   }
 
   // Legacy method for backward compatibility
-  async searchPoCs(cveId: string): Promise<any[]> {
-    const results = await this.searchPoCs(cveId, { maxResults: 5 });
+  async searchPocsLegacy(cveId: string): Promise<any[]> {
+    const results = await this.searchPoCs(cveId, { 
+      query: `${cveId} poc exploit`, 
+      maxResults: 5 
+    });
     return results.map(result => ({
       name: result.title,
       full_name: result.id.replace('github_', ''),
