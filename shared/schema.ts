@@ -273,6 +273,30 @@ export type CveSourceConfig = typeof cveSourceConfigs.$inferSelect;
 export type InsertMultiSourceCveScan = z.infer<typeof insertMultiSourceCveScanSchema>;
 export type MultiSourceCveScan = typeof multiSourceCveScans.$inferSelect;
 
+// App Configuration Table
+export const appConfigs = pgTable("app_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  githubToken: text("github_token"),
+  googleApiKey: text("google_api_key"),
+  
+  // Lab Suitability Criteria
+  minCvssScore: real("min_cvss_score").default(7.0),
+  requiredAttackVector: varchar("required_attack_vector", { length: 20 }).default("Network"), // 'Network', 'Adjacent', 'Local', 'Any'
+  
+  // Other app-level settings
+  defaultTimeframeYears: real("default_timeframe_years").default(3),
+  autoExportEnabled: boolean("auto_export_enabled").default(false),
+  
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const insertAppConfigSchema = createInsertSchema(appConfigs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Advanced Scoring Configuration Schema
 export const advancedScoringConfigSchema = z.object({
   weights: z.object({
@@ -294,4 +318,6 @@ export const advancedScoringConfigSchema = z.object({
   })
 });
 
+export type InsertAppConfig = z.infer<typeof insertAppConfigSchema>;
+export type AppConfig = typeof appConfigs.$inferSelect;
 export type AdvancedScoringConfig = z.infer<typeof advancedScoringConfigSchema>;

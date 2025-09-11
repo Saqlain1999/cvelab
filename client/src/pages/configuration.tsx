@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,17 +14,48 @@ import type { CveScan } from "@/types/cve";
 import { DateRange } from "react-day-picker";
 import { format, differenceInDays, subYears } from "date-fns";
 
+interface AppConfig {
+  githubToken?: string | null;
+  googleApiKey?: string | null;
+  minCvssScore?: number;
+  requiredAttackVector?: string;
+  defaultTimeframeYears?: number;
+  autoExportEnabled?: boolean;
+}
+
 export default function Configuration() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: subYears(new Date(), 3),
     to: new Date()
   });
   const [googleSheetsId, setGoogleSheetsId] = useState("");
+  
+  // Configuration state
+  const [githubToken, setGithubToken] = useState("");
+  const [googleApiKey, setGoogleApiKey] = useState("");
+  const [minCvssScore, setMinCvssScore] = useState("7.0");
+  const [requiredAttackVector, setRequiredAttackVector] = useState("Network");
+  
   const { toast } = useToast();
 
   const { data: scans = [] } = useQuery<CveScan[]>({
     queryKey: ["/api/scans"],
   });
+
+  // Load configuration on mount
+  const { data: config } = useQuery<AppConfig>({
+    queryKey: ["/api/config"],
+  });
+
+  // Load configuration values into state when config data is available
+  useEffect(() => {
+    if (config) {
+      setGithubToken(config.githubToken || "");
+      setGoogleApiKey(config.googleApiKey || "");
+      setMinCvssScore((config.minCvssScore || 7.0).toString());
+      setRequiredAttackVector(config.requiredAttackVector || "Network");
+    }
+  }, [config]);
 
   const startScanMutation = useMutation({
     mutationFn: async (scanParams: { startDate?: string; endDate?: string; timeframeYears?: number }) => {
@@ -79,6 +110,32 @@ export default function Configuration() {
     },
   });
 
+  const saveConfigMutation = useMutation({
+    mutationFn: async (configData: AppConfig) => {
+      const response = await apiRequest("POST", "/api/config", configData);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.message || 'Failed to save configuration');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/config"] });
+      toast({
+        title: "Configuration Saved",
+        description: "Your configuration has been saved successfully.",
+      });
+    },
+    onError: (error) => {
+      console.error('Config save error:', error);
+      toast({
+        title: "Save Failed",
+        description: error.message || 'Unable to save configuration. Please try again.',
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleStartScan = () => {
     // Smart parameter logic: use date range if available, otherwise use default timeframe
     const hasDateRange = dateRange?.from && dateRange?.to;
@@ -125,6 +182,19 @@ export default function Configuration() {
 
   const handleTestSheets = () => {
     testSheetsMutation.mutate();
+  };
+
+  const handleSaveConfig = () => {
+    const configData: AppConfig = {
+      githubToken: githubToken.trim() || null,
+      googleApiKey: googleApiKey.trim() || null,
+      minCvssScore: parseFloat(minCvssScore),
+      requiredAttackVector,
+      defaultTimeframeYears: 3,
+      autoExportEnabled: false
+    };
+    
+    saveConfigMutation.mutate(configData);
   };
 
   const latestScan = scans[0];
@@ -266,6 +336,8 @@ export default function Configuration() {
                       id="github-token"
                       type="password"
                       placeholder="ghp_..."
+                      value={githubToken}
+                      onChange={(e) => setGithubToken(e.target.value)}
                       data-testid="input-github-token"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
@@ -278,6 +350,8 @@ export default function Configuration() {
                       id="google-api-key"
                       type="password"
                       placeholder="AIza..."
+                      value={googleApiKey}
+                      onChange={(e) => setGoogleApiKey(e.target.value)}
                       data-testid="input-google-api-key"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
@@ -285,9 +359,14 @@ export default function Configuration() {
                     </p>
                   </div>
                 </div>
-                <Button className="w-full md:w-auto" data-testid="button-save-config">
+                <Button 
+                  onClick={handleSaveConfig}
+                  disabled={saveConfigMutation.isPending}
+                  className="w-full md:w-auto" 
+                  data-testid="button-save-config"
+                >
                   <Save className="w-4 h-4 mr-2" />
-                  Save Configuration
+                  {saveConfigMutation.isPending ? "Saving..." : "Save Configuration"}
                 </Button>
               </CardContent>
             </Card>
@@ -304,7 +383,7 @@ export default function Configuration() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="min-cvss">Minimum CVSS Score</Label>
-                    <Select defaultValue="7.0" data-testid="select-min-cvss">
+                    <Select value={minCvssScore} onValueChange={setMinCvssScore} data-testid="select-min-cvss">
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -317,7 +396,7 @@ export default function Configuration() {
                   </div>
                   <div>
                     <Label htmlFor="attack-vector">Required Attack Vector</Label>
-                    <Select defaultValue="Network" data-testid="select-attack-vector">
+                    <Select value={requiredAttackVector} onValueChange={setRequiredAttackVector} data-testid="select-attack-vector">
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>

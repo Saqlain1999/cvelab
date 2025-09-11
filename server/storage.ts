@@ -4,7 +4,8 @@ import {
   type CveScan, type InsertCveScan,
   type MonitoringConfig, type InsertMonitoringConfig,
   type CveAlert, type InsertCveAlert,
-  type MonitoringRun, type InsertMonitoringRun
+  type MonitoringRun, type InsertMonitoringRun,
+  type AppConfig, type InsertAppConfig
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -54,6 +55,12 @@ export interface IStorage {
   getCveLists(): Promise<CveListSummary[]>;
   getCveStatusStats(): Promise<CveStatusStats>;
   getPriorityCves(): Promise<Cve[]>;
+  
+  // App Configuration
+  getAppConfig(): Promise<AppConfig | undefined>;
+  createAppConfig(config: InsertAppConfig): Promise<AppConfig>;
+  updateAppConfig(id: string, updates: Partial<InsertAppConfig>): Promise<AppConfig | undefined>;
+  createOrUpdateAppConfig(config: InsertAppConfig): Promise<AppConfig>;
 }
 
 export interface CveFilters {
@@ -107,6 +114,7 @@ export class MemStorage implements IStorage {
   private monitoringConfigs: Map<string, MonitoringConfig>;
   private cveAlerts: Map<string, CveAlert>;
   private monitoringRuns: Map<string, MonitoringRun>;
+  private appConfigs: Map<string, AppConfig>;
 
   constructor() {
     this.users = new Map();
@@ -115,6 +123,7 @@ export class MemStorage implements IStorage {
     this.monitoringConfigs = new Map();
     this.cveAlerts = new Map();
     this.monitoringRuns = new Map();
+    this.appConfigs = new Map();
     
     // Add some sample CVE data for demonstration
     this.initializeSampleData();
@@ -655,6 +664,58 @@ export class MemStorage implements IStorage {
         const bDate = b.statusUpdatedAt || b.updatedAt || new Date(0);
         return new Date(bDate).getTime() - new Date(aDate).getTime();
       });
+  }
+
+  // App Configuration methods
+  async getAppConfig(): Promise<AppConfig | undefined> {
+    const configs = Array.from(this.appConfigs.values());
+    return configs[0]; // Return the first/default config (singleton pattern)
+  }
+
+  async createAppConfig(insertConfig: InsertAppConfig): Promise<AppConfig> {
+    const id = randomUUID();
+    const now = new Date();
+    const config: AppConfig = {
+      ...insertConfig,
+      id,
+      createdAt: now,
+      updatedAt: now,
+      githubToken: insertConfig.githubToken ?? null,
+      googleApiKey: insertConfig.googleApiKey ?? null,
+      minCvssScore: insertConfig.minCvssScore ?? 7.0,
+      requiredAttackVector: insertConfig.requiredAttackVector ?? "Network",
+      defaultTimeframeYears: insertConfig.defaultTimeframeYears ?? 3,
+      autoExportEnabled: insertConfig.autoExportEnabled ?? false,
+    };
+    this.appConfigs.set(id, config);
+    return config;
+  }
+
+  async updateAppConfig(id: string, updates: Partial<InsertAppConfig>): Promise<AppConfig | undefined> {
+    const existing = this.appConfigs.get(id);
+    if (!existing) return undefined;
+    
+    const updated: AppConfig = {
+      ...existing,
+      ...updates,
+      updatedAt: new Date()
+    };
+    this.appConfigs.set(id, updated);
+    return updated;
+  }
+
+  async createOrUpdateAppConfig(config: InsertAppConfig): Promise<AppConfig> {
+    // Get existing config (singleton pattern - there should only be one)
+    const existing = await this.getAppConfig();
+    
+    if (existing) {
+      // Update existing config
+      const updated = await this.updateAppConfig(existing.id, config);
+      return updated!;
+    } else {
+      // Create new config
+      return await this.createAppConfig(config);
+    }
   }
 }
 

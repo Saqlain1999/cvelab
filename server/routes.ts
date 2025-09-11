@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCveSchema, insertCveScanSchema, advancedScoringConfigSchema, cveStatusUpdateSchema, cveBulkStatusUpdateSchema } from "@shared/schema";
+import { insertCveSchema, insertCveScanSchema, advancedScoringConfigSchema, cveStatusUpdateSchema, cveBulkStatusUpdateSchema, insertAppConfigSchema } from "@shared/schema";
 import { CveService } from "./services/cveService";
 import { GitHubService } from "./services/githubService";
 import { GoogleSheetsService } from "./services/googleSheetsService";
@@ -132,6 +132,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error fetching stats:', error);
       res.status(500).json({ message: 'Failed to fetch stats' });
+    }
+  });
+
+  // ============================================================================
+  // App Configuration API Endpoints
+  // ============================================================================
+
+  app.get("/api/config", async (req, res) => {
+    try {
+      const config = await storage.getAppConfig();
+      if (!config) {
+        // Return default config if none exists
+        const defaultConfig = {
+          githubToken: null,
+          googleApiKey: null,
+          minCvssScore: 7.0,
+          requiredAttackVector: "Network",
+          defaultTimeframeYears: 3,
+          autoExportEnabled: false
+        };
+        return res.json(defaultConfig);
+      }
+      res.json(config);
+    } catch (error) {
+      console.error('Error fetching app config:', error);
+      res.status(500).json({ message: 'Failed to fetch configuration' });
+    }
+  });
+
+  app.post("/api/config", async (req, res) => {
+    try {
+      const configData = insertAppConfigSchema.parse(req.body);
+      const config = await storage.createOrUpdateAppConfig(configData);
+      res.json(config);
+    } catch (error) {
+      console.error('Error saving app config:', error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ 
+          message: 'Invalid configuration data', 
+          details: error.message 
+        });
+      }
+      res.status(500).json({ message: 'Failed to save configuration' });
     }
   });
 
@@ -527,7 +570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timeframeYears: useDateRange ? undefined : timeframeYears,
         startDate: useDateRange ? startDate : undefined,
         endDate: useDateRange ? endDate : undefined,
-        severities: ['HIGH', 'CRITICAL'],
+        severities: ['HIGH', 'CRITICAL'] as ('HIGH' | 'CRITICAL' | 'MEDIUM' | 'LOW')[],
         attackVector: ['NETWORK'],
         attackComplexity: ['LOW'],
         userInteraction: ['NONE', 'REQUIRED'], // Allow both for wider coverage
