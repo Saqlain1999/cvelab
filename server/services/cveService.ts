@@ -1,3 +1,5 @@
+import { advancedScoringService } from "./advancedScoringService";
+
 interface NistCveResponse {
   vulnerabilities: Array<{
     cve: {
@@ -217,5 +219,45 @@ export class CveService {
     
     const product = cve.affectedProduct?.toLowerCase() || '';
     return labFriendlyTechnologies.some(tech => product.includes(tech));
+  }
+
+  calculateAdvancedLabScore(cve: any): { score: number; breakdown: any } {
+    // Auto-generate advanced scoring factors from CVE data
+    const factors = advancedScoringService.generateFactorsFromCve(cve);
+    
+    // Calculate advanced score with detailed breakdown
+    return advancedScoringService.calculateAdvancedScore(
+      cve,
+      factors.educational,
+      factors.deployment,
+      factors.technical,
+      factors.practical
+    );
+  }
+
+  calculateBasicLabScore(cve: any): number {
+    let score = 0;
+
+    // CVSS score weight (40%)
+    if (cve.cvssScore) {
+      score += (cve.cvssScore / 10) * 4;
+    }
+
+    // PoC availability (25%)
+    if (cve.hasPublicPoc) {
+      score += 2.5;
+    }
+
+    // Docker deployability (20%)
+    if (cve.isDockerDeployable) {
+      score += 2;
+    }
+
+    // Network testability (15%)
+    if (cve.isCurlTestable) {
+      score += 1.5;
+    }
+
+    return Math.min(score, 10);
   }
 }

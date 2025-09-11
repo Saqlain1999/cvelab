@@ -1,10 +1,11 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCveSchema, insertCveScanSchema } from "@shared/schema";
+import { insertCveSchema, insertCveScanSchema, advancedScoringConfigSchema } from "@shared/schema";
 import { CveService } from "./services/cveService";
 import { GitHubService } from "./services/githubService";
 import { GoogleSheetsService } from "./services/googleSheetsService";
+import { advancedScoringService } from "./services/advancedScoringService";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const cveService = new CveService();
@@ -175,8 +176,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           cveData.isCurlTestable = cveData.attackVector === 'Network' && 
             ['Web Server', 'Network Service', 'CMS'].includes(cveData.category);
 
-          // Calculate lab suitability score
-          cveData.labSuitabilityScore = calculateLabSuitabilityScore(cveData);
+          // Calculate advanced lab suitability score AFTER all enrichment data is available
+          const advancedScore = cveService.calculateAdvancedLabScore(cveData);
+          cveData.labSuitabilityScore = advancedScore.score;
+          cveData.scoringBreakdown = advancedScore.breakdown;
 
           if (cveData.severity === 'CRITICAL') {
             criticalSeverity++;
@@ -212,31 +215,125 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
-  function calculateLabSuitabilityScore(cve: any): number {
-    let score = 0;
-
-    // CVSS score weight (40%)
-    if (cve.cvssScore) {
-      score += (cve.cvssScore / 10) * 4;
+  // Advanced Scoring Configuration API
+  app.get("/api/scoring/config", async (req, res) => {
+    try {
+      const config = advancedScoringService.getConfig();
+      res.json(config);
+    } catch (error) {
+      console.error('Error fetching scoring config:', error);
+      res.status(500).json({ message: 'Failed to fetch scoring configuration' });
     }
+  });
 
-    // PoC availability (25%)
-    if (cve.hasPublicPoc) {
-      score += 2.5;
+  app.post("/api/scoring/config", async (req, res) => {
+    try {
+      const validatedConfig = advancedScoringConfigSchema.parse(req.body);
+      advancedScoringService.updateConfig(validatedConfig);
+      const updatedConfig = advancedScoringService.getConfig();
+      res.json(updatedConfig);
+    } catch (error) {
+      console.error('Error updating scoring config:', error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        res.status(400).json({ message: 'Invalid configuration format', details: error.message });
+      } else {
+        res.status(500).json({ message: 'Failed to update scoring configuration' });
+      }
     }
+  });
 
-    // Docker deployability (20%)
-    if (cve.isDockerDeployable) {
-      score += 2;
+  // CVE Advanced Scoring API
+  app.get("/api/cves/:id/scoring", async (req, res) => {
+    try {
+      const cve = await storage.getCve(req.params.id);
+      if (!cve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+
+      const advancedScore = cveService.calculateAdvancedLabScore(cve);
+      const basicScore = cveService.calculateBasicLabScore(cve);
+
+      res.json({
+        cveId: cve.cveId,
+        advancedScore: advancedScore.score,
+        basicScore,
+        breakdown: advancedScore.breakdown,
+        comparison: {
+          improvement: Math.round((advancedScore.score - basicScore) * 10) / 10,
+          percentChange: basicScore > 0 ? Math.round(((advancedScore.score - basicScore) / basicScore) * 100) : 0
+        }
+      });
+    } catch (error) {
+      console.error('Error calculating CVE scores:', error);
+      res.status(500).json({ message: 'Failed to calculate CVE scores' });
     }
+  });
 
-    // Network testability (15%)
-    if (cve.isCurlTestable) {
-      score += 1.5;
+  // Batch scoring comparison for dashboard analytics
+  app.get("/api/scoring/analytics", async (req, res) => {
+    try {
+      const cves = await storage.getCves();
+      const analytics = {
+        totalCves: cves.length,
+        scoringComparison: {
+          averageAdvanced: 0,
+          averageBasic: 0,
+          improvement: 0
+        },
+        distributionByCategory: {} as any,
+        topScoredCves: [] as any[]
+      };
+
+      let totalAdvanced = 0;
+      let totalBasic = 0;
+      const scoredCves = [];
+
+      for (const cve of cves) {
+        const advancedScore = cveService.calculateAdvancedLabScore(cve);
+        const basicScore = cveService.calculateBasicLabScore(cve);
+        
+        totalAdvanced += advancedScore.score;
+        totalBasic += basicScore;
+
+        scoredCves.push({
+          cveId: cve.cveId,
+          category: cve.category,
+          advancedScore: advancedScore.score,
+          basicScore,
+          improvement: advancedScore.score - basicScore
+        });
+
+        // Track by category
+        if (!analytics.distributionByCategory[cve.category]) {
+          analytics.distributionByCategory[cve.category] = { count: 0, avgAdvanced: 0, avgBasic: 0 };
+        }
+        analytics.distributionByCategory[cve.category].count++;
+      }
+
+      analytics.scoringComparison.averageAdvanced = Math.round((totalAdvanced / cves.length) * 10) / 10;
+      analytics.scoringComparison.averageBasic = Math.round((totalBasic / cves.length) * 10) / 10;
+      analytics.scoringComparison.improvement = Math.round((analytics.scoringComparison.averageAdvanced - analytics.scoringComparison.averageBasic) * 10) / 10;
+
+      // Calculate category averages
+      for (const category in analytics.distributionByCategory) {
+        const categoryData = analytics.distributionByCategory[category];
+        const categoryCves = scoredCves.filter(c => c.category === category);
+        categoryData.avgAdvanced = Math.round((categoryCves.reduce((sum, c) => sum + c.advancedScore, 0) / categoryCves.length) * 10) / 10;
+        categoryData.avgBasic = Math.round((categoryCves.reduce((sum, c) => sum + c.basicScore, 0) / categoryCves.length) * 10) / 10;
+      }
+
+      // Top scored CVEs
+      analytics.topScoredCves = scoredCves
+        .sort((a, b) => b.advancedScore - a.advancedScore)
+        .slice(0, 10)
+        .map(c => ({ cveId: c.cveId, score: c.advancedScore, improvement: c.improvement }));
+
+      res.json(analytics);
+    } catch (error) {
+      console.error('Error generating scoring analytics:', error);
+      res.status(500).json({ message: 'Failed to generate scoring analytics' });
     }
-
-    return Math.min(score, 10);
-  }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

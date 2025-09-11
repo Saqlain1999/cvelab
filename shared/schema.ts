@@ -31,6 +31,7 @@ export const cves = pgTable("cves", {
   fingerprintInfo: jsonb("fingerprint_info"),
   exploitabilityScore: real("exploitability_score"),
   labSuitabilityScore: real("lab_suitability_score"),
+  scoringBreakdown: jsonb("scoring_breakdown"),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
@@ -135,3 +136,26 @@ export type InsertCveAlert = z.infer<typeof insertCveAlertSchema>;
 export type CveAlert = typeof cveAlerts.$inferSelect;
 export type InsertMonitoringRun = z.infer<typeof insertMonitoringRunSchema>;
 export type MonitoringRun = typeof monitoringRuns.$inferSelect;
+
+// Advanced Scoring Configuration Schema
+export const advancedScoringConfigSchema = z.object({
+  weights: z.object({
+    educational: z.number().min(0).max(1),
+    deployment: z.number().min(0).max(1),
+    technical: z.number().min(0).max(1),
+    practical: z.number().min(0).max(1),
+    baseline: z.number().min(0).max(1)
+  }),
+  skillLevelMultipliers: z.object({
+    beginner: z.number().min(0),
+    intermediate: z.number().min(0),
+    advanced: z.number().min(0)
+  }),
+  complexityPenalties: z.object({
+    simple: z.number().min(0).max(1),
+    moderate: z.number().min(0).max(1),
+    complex: z.number().min(0).max(1)
+  })
+});
+
+export type AdvancedScoringConfig = z.infer<typeof advancedScoringConfigSchema>;

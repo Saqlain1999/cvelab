@@ -275,6 +275,7 @@ export class MemStorage implements IStorage {
       pocUrls: insertCve.pocUrls ?? null,
       exploitabilityScore: insertCve.exploitabilityScore ?? null,
       labSuitabilityScore: insertCve.labSuitabilityScore ?? null,
+      scoringBreakdown: insertCve.scoringBreakdown ?? null,
       hasPublicPoc: insertCve.hasPublicPoc ?? null,
       isDockerDeployable: insertCve.isDockerDeployable ?? null,
       isCurlTestable: insertCve.isCurlTestable ?? null,
