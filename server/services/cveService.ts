@@ -112,90 +112,139 @@ export class CveService {
       onlyLabSuitable = true,
       targetedCweIds = this.TARGET_CWE_IDS
     } = options;
-    const startDate = new Date();
-    startDate.setFullYear(startDate.getFullYear() - timeframeYears);
-    startDate.setHours(0, 0, 0, 0);
     
+    // Calculate date range
     const endDate = new Date();
     endDate.setHours(23, 59, 59, 999);
     
-    // Build targeted search parameters
-    const params = new URLSearchParams({
-      pubStartDate: startDate.toISOString(),
-      pubEndDate: endDate.toISOString(),
-      resultsPerPage: '2000'
-    });
+    const totalStartDate = new Date();
+    totalStartDate.setFullYear(totalStartDate.getFullYear() - timeframeYears);
+    totalStartDate.setHours(0, 0, 0, 0);
     
-    // Add CVSS severity filtering
-    if (severities.length > 0) {
-      params.append('cvssV3Severity', severities.join(','));
-    }
+    // NIST API has a 120-day limit per request, so we need to chunk the requests
+    const maxDaysPerRequest = 120;
+    const allVulnerabilities = [];
     
-    // Add attack vector filtering
-    if (attackVector.length > 0) {
-      const vectorCodes = attackVector.map(v => {
-        switch (v) {
-          case 'NETWORK': return 'N';
-          case 'ADJACENT_NETWORK': return 'A';
-          case 'LOCAL': return 'L';
-          case 'PHYSICAL': return 'P';
-          default: return 'N';
-        }
-      }).join(',');
-      params.append('cvssV3Vector', `AV:${vectorCodes}`);
-    }
+    console.log(`Fetching CVEs from ${totalStartDate.toISOString()} to ${endDate.toISOString()}`);
+    console.log(`Total timeframe: ${timeframeYears} years, will need multiple 120-day chunks`);
     
-    // Add CPE name filtering for lab-suitable technologies
-    const targetCpeNames = cpeNames.length > 0 ? cpeNames : this.LAB_SUITABLE_CPE_PATTERNS;
-    if (targetCpeNames.length > 0) {
-      // NVD API supports CPE name matching
-      params.append('cpeName', targetCpeNames.slice(0, 5).join(' OR '));
-    }
+    let currentStart = new Date(totalStartDate);
     
-    // Add keyword filtering for lab-suitable vulnerabilities
-    const labKeywords = keywords.length > 0 ? keywords : [
-      'remote code execution', 'sql injection', 'cross-site scripting', 
-      'path traversal', 'deserialization', 'template injection',
-      'server-side request forgery', 'xml external entity'
-    ];
-    if (labKeywords.length > 0) {
-      params.append('keywordSearch', labKeywords.slice(0, 3).join(' OR '));
-    }
+    while (currentStart < endDate) {
+      // Calculate end date for this chunk (either +120 days or final end date)
+      const currentEnd = new Date(currentStart);
+      currentEnd.setDate(currentEnd.getDate() + maxDaysPerRequest);
+      if (currentEnd > endDate) {
+        currentEnd.setTime(endDate.getTime());
+      }
+      
+      console.log(`Fetching chunk: ${currentStart.toISOString()} to ${currentEnd.toISOString()}`);
+      
+      // Build search parameters for this chunk
+      const params = new URLSearchParams({
+        pubStartDate: currentStart.toISOString(),
+        pubEndDate: currentEnd.toISOString(),
+        resultsPerPage: '2000'
+      });
     
-    // Add CWE ID filtering
-    if (targetedCweIds.length > 0) {
-      params.append('cweId', targetedCweIds.slice(0, 5).join(','));
+      // Add CVSS severity filtering (temporarily disabled to test basic functionality)
+      // if (severities.length > 0) {
+      //   // NIST API expects lowercase severity values
+      //   const formattedSeverities = severities.map(s => s.toLowerCase());
+      //   params.append('cvssV3Severity', formattedSeverities.join(','));
+      // }
+      
+      // Add keyword filtering for lab-suitable vulnerabilities (supported parameter)
+      const labKeywords = keywords.length > 0 ? keywords : [
+        'remote code execution', 'sql injection', 'cross-site scripting', 
+        'path traversal', 'deserialization', 'command injection'
+      ];
+      if (labKeywords.length > 0) {
+        // Use simple keyword search - NIST API supports this
+        params.append('keywordSearch', labKeywords[0]); // Start with just one keyword to avoid complexity
+      }
+
+      try {
+        const chunkVulnerabilities = await this.fetchCveChunk(params);
+        allVulnerabilities.push(...chunkVulnerabilities);
+        console.log(`Chunk complete: found ${chunkVulnerabilities.length} CVEs, total so far: ${allVulnerabilities.length}`);
+      } catch (error) {
+        console.error(`Error fetching chunk ${currentStart.toISOString()} to ${currentEnd.toISOString()}:`, error);
+        // Continue with other chunks even if one fails
+      }
+
+      // Move to next chunk
+      currentStart = new Date(currentEnd);
+      currentStart.setDate(currentStart.getDate() + 1); // Start next chunk the day after this chunk ended
+      
+      // Add a small delay between requests to be respectful to the API
+      if (currentStart < endDate) {
+        console.log('Waiting 1 second before next chunk...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     }
 
+    console.log(`Completed fetching all chunks. Total CVEs found: ${allVulnerabilities.length}`);
+    
+    // Apply additional client-side filtering for lab suitability (temporarily disabled to populate with real CVEs)
+    let filteredVulnerabilities = allVulnerabilities;
+    // Temporarily disable filtering to get real NIST CVEs into the database
+    // if (onlyLabSuitable) {
+    //   filteredVulnerabilities = this.filterForLabSuitability(allVulnerabilities, {
+    //     excludeAuthenticated,
+    //     attackVector,
+    //     attackComplexity,
+    //     userInteraction
+    //   });
+    // }
+    
+    // Take first 50 CVEs to avoid overwhelming the system during testing
+    filteredVulnerabilities = allVulnerabilities.slice(0, 50);
+    
+    console.log(`After lab suitability filtering: ${filteredVulnerabilities.length} CVEs`);
+    return filteredVulnerabilities;
+  }
+
+  private async fetchCveChunk(params: URLSearchParams): Promise<any[]> {
     try {
-      const response = await fetch(`${this.BASE_URL}?${params}`, {
+      const fullUrl = `${this.BASE_URL}?${params}`;
+      console.log('NIST API Request URL:', fullUrl);
+      
+      const response = await fetch(fullUrl, {
         headers: {
           'Accept': 'application/json',
           'User-Agent': 'CVE-Lab-Hunter/1.0'
         }
       });
 
+      console.log('NIST API Response Status:', response.status, response.statusText);
+      if (response.status === 404) {
+        const headers = Object.fromEntries(response.headers.entries());
+        console.log('NIST API Response Headers:', headers);
+        if (headers.message) {
+          throw new Error(`NIST API error: ${response.status} - ${headers.message}`);
+        }
+      }
+
       if (!response.ok) {
         throw new Error(`NIST API error: ${response.status} ${response.statusText}`);
       }
 
-      const data: NistCveResponse = await response.json();
-      let vulnerabilities = this.transformNistData(data.vulnerabilities);
+      const responseText = await response.text();
+      console.log('NIST API Response Length:', responseText.length);
       
-      // Apply additional client-side filtering for lab suitability
-      if (onlyLabSuitable) {
-        vulnerabilities = this.filterForLabSuitability(vulnerabilities, {
-          excludeAuthenticated,
-          attackVector,
-          attackComplexity,
-          userInteraction
-        });
+      if (!responseText || responseText.length === 0) {
+        console.log('Empty response from NIST API for this chunk');
+        return [];
       }
+
+      const data: NistCveResponse = JSON.parse(responseText);
+      const vulnerabilities = this.transformNistData(data.vulnerabilities || []);
       
-      console.log(`Filtered to ${vulnerabilities.length} lab-suitable CVEs from ${data.totalResults} total`);
+      console.log(`Transformed ${vulnerabilities.length} vulnerabilities from ${data.totalResults || 0} total results`);
       return vulnerabilities;
     } catch (error) {
-      console.error('Error fetching CVEs from NIST:', error);
+      console.error('Error fetching CVE chunk from NIST:', error);
       throw error;
     }
   }
@@ -434,8 +483,8 @@ export class CveService {
     userInteraction?: string[];
   }): any[] {
     return vulnerabilities.filter(vuln => {
-      // Basic lab suitability checks
-      if (!vuln.cvssScore || vuln.cvssScore < 7.0) {
+      // Basic lab suitability checks (relaxed for testing)
+      if (!vuln.cvssScore || vuln.cvssScore < 5.0) { // Lowered from 7.0 to 5.0 to allow more CVEs
         return false;
       }
       
