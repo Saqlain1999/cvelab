@@ -7,6 +7,7 @@ import {
   CveRelevanceInfo,
   SearchResultMetadata 
 } from '../types/multiSourceTypes';
+import type { IStorage } from '../storage';
 
 interface GitHubSearchResponse {
   total_count: number;
@@ -42,8 +43,29 @@ interface GitHubRateLimit {
 
 export class GitHubService {
   private readonly BASE_URL = 'https://api.github.com';
-  private readonly API_KEY = process.env.GITHUB_API_KEY || process.env.GITHUB_TOKEN || '';
   private lastRateLimit: GitHubRateLimit | null = null;
+  private storage: IStorage;
+
+  constructor(storage: IStorage) {
+    this.storage = storage;
+  }
+
+  /**
+   * Get GitHub API key from database configuration, fallback to environment variables
+   */
+  private async getApiKey(): Promise<string> {
+    try {
+      const config = await this.storage.getAppConfig();
+      if (config?.githubToken) {
+        return config.githubToken;
+      }
+    } catch (error) {
+      console.warn('Failed to retrieve GitHub token from database config:', error);
+    }
+    
+    // Fallback to environment variables
+    return process.env.GITHUB_API_KEY || process.env.GITHUB_TOKEN || '';
+  }
   
   // Production reliability configuration
   private readonly CONFIG = {
@@ -69,9 +91,10 @@ export class GitHubService {
     const allResults: any[] = [];
 
     // Check API key availability and warn user
-    if (!this.API_KEY) {
-      console.warn('GitHub API key not configured. Rate limits will be very restrictive (60 requests/hour).');
-      console.warn('To improve PoC discovery, set GITHUB_API_KEY or GITHUB_TOKEN environment variable.');
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
+      console.warn('GitHub API key not configured in database or environment variables. Rate limits will be very restrictive (60 requests/hour).');
+      console.warn('Configure GitHub token in app settings or set GITHUB_API_KEY environment variable to get 5000 requests/hour.');
     }
 
     for (const query of queries) {
@@ -136,8 +159,9 @@ export class GitHubService {
       'X-GitHub-Api-Version': '2022-11-28'
     };
 
-    if (this.API_KEY) {
-      headers['Authorization'] = `token ${this.API_KEY}`;
+    const apiKey = await this.getApiKey();
+    if (apiKey) {
+      headers['Authorization'] = `token ${apiKey}`;
     }
 
     const url = `${this.BASE_URL}/search/repositories?${params}`;
@@ -373,13 +397,14 @@ export class GitHubService {
       const repo = repoUrl.split('/')[4];
       
       const files = ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml', 'Dockerfile.vulnerable'];
+      const apiKey = await this.getApiKey();
       
       for (const file of files) {
         const response = await fetch(`${this.BASE_URL}/repos/${owner}/${repo}/contents/${file}`, {
           headers: {
             'Accept': 'application/vnd.github.v3+json',
             'User-Agent': 'CVE-Lab-Hunter/1.0',
-            ...(this.API_KEY && { 'Authorization': `token ${this.API_KEY}` })
+            ...(apiKey && { 'Authorization': `token ${apiKey}` })
           }
         });
         
@@ -416,11 +441,12 @@ export class GitHubService {
         'requirements.txt', 'package.json', 'Gemfile', 'pom.xml'
       ];
 
+      const apiKey = await this.getApiKey();
       const contentResponse = await fetch(`${this.BASE_URL}/repos/${owner}/${repo}/contents`, {
         headers: {
           'Accept': 'application/vnd.github.v3+json',
           'User-Agent': 'CVE-Lab-Hunter/1.0',
-          ...(this.API_KEY && { 'Authorization': `token ${this.API_KEY}` })
+          ...(apiKey && { 'Authorization': `token ${apiKey}` })
         }
       });
 

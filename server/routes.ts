@@ -13,8 +13,8 @@ import { CveDuplicateDetectionService } from "./services/cveDuplicateDetectionSe
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const cveService = new CveService();
-  const githubService = new GitHubService();
-  const googleSheetsService = new GoogleSheetsService();
+  const githubService = new GitHubService(storage);
+  const googleSheetsService = new GoogleSheetsService(storage);
 
   // CVE endpoints
   app.get("/api/cves", async (req, res) => {
@@ -571,9 +571,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         startDate: useDateRange ? startDate : undefined,
         endDate: useDateRange ? endDate : undefined,
         severities: ['HIGH', 'CRITICAL'] as ('HIGH' | 'CRITICAL' | 'MEDIUM' | 'LOW')[],
-        attackVector: ['NETWORK'],
-        attackComplexity: ['LOW'],
-        userInteraction: ['NONE', 'REQUIRED'], // Allow both for wider coverage
+        attackVector: ['NETWORK'] as ('NETWORK' | 'ADJACENT_NETWORK' | 'LOCAL' | 'PHYSICAL')[],
+        attackComplexity: ['LOW'] as ('LOW' | 'HIGH')[],
+        userInteraction: ['NONE', 'REQUIRED'] as ('NONE' | 'REQUIRED')[], // Allow both for wider coverage
         excludeAuthenticated: true,
         onlyLabSuitable: true,
         keywords: [

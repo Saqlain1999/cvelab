@@ -1,0 +1,690 @@
+/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs main !104 ?3
+❯ npm run dev
+
+
+> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+
+MultiSourceCveDiscoveryService: Initializing source adapters...
+Registered CVE source adapter: NIST NVD
+Registered CVE source adapter: MITRE CVE
+Registered CVE source adapter: Vulners
+Registered CVE source adapter: CIRCL CVE Search
+MultiSourceCveDiscoveryService: Registered 4 source adapters
+nist: Request attempt 1/3: https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=2025-09-04T09%3A34%3A48.198Z&pubEndDate=2025-09-11T09%3A34%3A48.199Z&resultsPerPage=1
+mitre: Request attempt 1/3: https://cve.mitre.org/
+vulners: Request attempt 1/3: https://vulners.com/api/v3/archive/collection/
+circl: Request attempt 1/3: https://cve.circl.lu/api/dbInfo
+10:34:48 AM [express] serving on port 5000
+MultiSourceCveDiscoveryService: 1/4 adapters are healthy and ready
+Browserslist: browsers data (caniuse-lite) is 11 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+10:35:17 AM [express] GET /api/cves 304 in 2ms :: []
+10:35:20 AM [express] GET /api/scans 304 in 1ms :: []
+10:35:20 AM [express] GET /api/config 200 in 1ms :: {"githubToken":null,"googleApiKey":null,"minCvssS…
+10:35:22 AM [express] POST /api/config 200 in 2ms :: {"githubToken":"github_pat_11AHUWS5I0T51KAWXnEjV…
+10:35:22 AM [express] GET /api/config 200 in 0ms :: {"githubToken":"github_pat_11AHUWS5I0T51KAWXnEjV4…
+10:35:23 AM [express] GET /api/cves 304 in 1ms :: []
+Starting targeted CVE scan from 2025-03-11 to 2025-09-11...
+CveService: Starting comprehensive multi-source CVE discovery
+Discovery options: from 2025-03-11 to 2025-09-11, severities: HIGH,CRITICAL, lab-suitable: true
+Starting multi-source CVE discovery with 1 year timeframe
+nist: Request attempt 1/3: https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=2025-09-04T09%3A35%3A29.206Z&pubEndDate=2025-09-11T09%3A35%3A29.206Z&resultsPerPage=1
+mitre: Request attempt 1/3: https://cve.mitre.org/
+vulners: Request attempt 1/3: https://vulners.com/api/v3/archive/collection/
+circl: Request attempt 1/3: https://cve.circl.lu/api/dbInfo
+10:35:29 AM [express] POST /api/scans 200 in 10ms :: {"timeframeYears":3,"startDate":"2025-03-11","en…
+10:35:29 AM [express] GET /api/scans 200 in 1ms :: [{"timeframeYears":3,"startDate":"2025-03-11","end…
+1/4 sources are healthy
+NIST: Starting discovery with 1 year timeframe
+NIST: Fetching chunk from 2024-09-11 to 2025-01-09
+NIST: Fetching CVEs from 2024-09-11T09:35:29.000Z to 2025-01-09T10:35:29.000Z
+nist: Request attempt 1/3: https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=2024-09-11T09%3A35%3A29.000Z&pubEndDate=2025-01-09T10%3A35%3A29.000Z&resultsPerPage=2000
+nist: Request failed on attempt 1: Error: Client error: 404 
+    at NistAdapter.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/baseSourceAdapter.ts:161:17)       
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NistAdapter.fetchCveChunk (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/nistAdapter.ts:144:22)
+    at async NistAdapter.discoverCves (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/nistAdapter.ts:61:29)
+    at async MultiSourceCveDiscoveryService.discoverFromSingleSource (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceCveDiscoveryService.ts:321:23)
+    at async Promise.allSettled (index 0)
+    at async MultiSourceCveDiscoveryService.discoverCvesFromAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceCveDiscoveryService.ts:245:30)
+    at async CveService.fetchCvesFromAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/cveService.ts:167:31)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:587:30)
+nist: Request attempt 2/3: https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=2024-09-11T09%3A35%3A29.000Z&pubEndDate=2025-01-09T10%3A35%3A29.000Z&resultsPerPage=2000
+nist: Request failed on attempt 2: Error: Client error: 404 
+    at NistAdapter.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/baseSourceAdapter.ts:161:17)       
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NistAdapter.fetchCveChunk (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/nistAdapter.ts:144:22)
+    at async NistAdapter.discoverCves (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/nistAdapter.ts:61:29)
+    at async MultiSourceCveDiscoveryService.discoverFromSingleSource (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceCveDiscoveryService.ts:321:23)
+    at async Promise.allSettled (index 0)
+    at async MultiSourceCveDiscoveryService.discoverCvesFromAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceCveDiscoveryService.ts:245:30)
+    at async CveService.fetchCvesFromAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/cveService.ts:167:31)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:587:30)
+nist: Request attempt 3/3: https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=2024-09-11T09%3A35%3A29.000Z&pubEndDate=2025-01-09T10%3A35%3A29.000Z&resultsPerPage=2000
+nist: Request failed on attempt 3: Error: Client error: 404 
+    at NistAdapter.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/baseSourceAdapter.ts:161:17)       
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NistAdapter.fetchCveChunk (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/nistAdapter.ts:144:22)
+    at async NistAdapter.discoverCves (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/nistAdapter.ts:61:29)
+    at async MultiSourceCveDiscoveryService.discoverFromSingleSource (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceCveDiscoveryService.ts:321:23)
+    at async Promise.allSettled (index 0)
+    at async MultiSourceCveDiscoveryService.discoverCvesFromAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceCveDiscoveryService.ts:245:30)
+    at async CveService.fetchCvesFromAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/cveService.ts:167:31)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:587:30)
+NIST: Failed to fetch chunk 2024-09-11T09:35:29.725Z to 2025-01-09T10:35:29.725Z: Error: Client error: 404 
+    at NistAdapter.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/baseSourceAdapter.ts:161:17)       
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NistAdapter.fetchCveChunk (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/nistAdapter.ts:144:22)
+    at async NistAdapter.discoverCves (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/sourceAdapters/nistAdapter.ts:61:29)
+    at async MultiSourceCveDiscoveryService.discoverFromSingleSource (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceCveDiscoveryService.ts:321:23)
+    at async Promise.allSettled (index 0)
+    at async MultiSourceCveDiscoveryService.discoverCvesFromAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceCveDiscoveryService.ts:245:30)
+    at async CveService.fetchCvesFromAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/cveService.ts:167:31)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:587:30)
+NIST: Fetching chunk from 2025-01-10 to 2025-05-10
+NIST: Fetching CVEs from 2025-01-10T10:35:29.000Z to 2025-05-10T09:35:29.000Z
+nist: Request attempt 1/3: https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=2025-01-10T10%3A35%3A29.000Z&pubEndDate=2025-05-10T09%3A35%3A29.000Z&resultsPerPage=2000
+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NIST: Found 16746 total results in chunk, returning 2000 CVEs
+NIST: Fetching chunk from 2025-05-11 to 2025-09-08
+NIST: Fetching CVEs from 2025-05-11T09:35:29.000Z to 2025-09-08T09:35:29.000Z
+nist: Request attempt 1/3: https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=2025-05-11T09%3A35%3A29.000Z&pubEndDate=2025-09-08T09%3A35%3A29.000Z&resultsPerPage=2000
+NIST: Found 15240 total results in chunk, returning 2000 CVEs
+NIST: Fetching chunk from 2025-09-09 to 2025-09-11
+NIST: Fetching CVEs from 2025-09-09T09:35:29.000Z to 2025-09-11T09:35:29.000Z
+nist: Request attempt 1/3: https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=2025-09-09T09%3A35%3A29.000Z&pubEndDate=2025-09-11T09%3A35%3A29.000Z&resultsPerPage=2000
+NIST: Found 445 total results in chunk, returning 445 CVEs
+NIST: Discovered 286 CVEs
+nist: discovered 286 CVEs in 32716ms
+nist: discovered 286 CVEs
+Raw discovery complete: 286 total CVEs from 1 sources
+Starting intelligent deduplication of 286 raw CVEs
+Fingerprint analysis: 286 unique groups, 0 collisions detected
+Deduplication completed in 3ms: 286 groups, 0 conflicts
+Multi-source CVE discovery completed in 33238ms
+Deduplication: 286 → 286 unique CVEs
+Multi-source discovery completed:
+- Total unique CVEs discovered: 286
+- Sources used: nist
+- Duplicates detected: 0
+- Source conflicts: 0
+CveService: Recorded performance metrics for 1 sources
+Final CVE count after filtering: 8
+Multi-source discovery completed: 8 lab-suitable CVEs from multiple platforms
+Discovering comprehensive sources for CVE-2025-23195...
+GitHub API key not configured. Rate limits will be very restrictive (60 requests/hour).
+To improve PoC discovery, set GITHUB_API_KEY or GITHUB_TOKEN environment variable.
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20poc%20exploit%20vulnerability&order_by=star_count&sort=desc&per_page=20
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2025-23195%20poc%20exploit%20vulnerability&page_size=25
+ExploitDB: Using RSS feed for CVE discovery (API endpoint unreliable)
+ExploitDB-RSS request attempt 1/4: https://www.exploit-db.com/rss.xml
+RSS-The Hacker News request attempt 1/4: https://feeds.feedburner.com/TheHackersNews
+GitHub request attempt 1/4: CVE-2025-23195 poc exploit vulnerability poc proof-of-concept
+GitHub request attempt 1/4: CVE-2025-23195 poc exploit vulnerability exploit demonstration
+RSS-SANS ISC request attempt 1/4: https://isc.sans.edu/rssfeed.xml
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2025-23195%20poc%20exploit%20vulnerability-poc&page_size=25
+GitHub request attempt 1/4: CVE-2025-23195 poc exploit vulnerability vulnerability reproduction
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE2025-23195%20poc%20exploit%20vulnerability&page_size=25
+RSS-Krebs on Security request attempt 1/4: https://krebsonsecurity.com/feed/
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=vulnerability-CVE-2025-23195%20poc%20exploit%20vulnerability&page_size=25
+GitHub request attempt 1/4: "CVE-2025-23195 poc exploit vulnerability" docker vulnerable
+RSS-Schneier on Security request attempt 1/4: https://www.schneier.com/feed/
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20poc%20exploit%20vulnerability%20poc&order_by=star_count&sort=desc&per_page=20
+RSS-BleepingComputer request attempt 1/4: https://www.bleepingcomputer.com/feed/
+RSS-CVE Details request attempt 1/4: https://www.cvedetails.com/rss.php
+GitHub request attempt 1/4: "CVE-2025-23195 poc exploit vulnerability" lab setup
+RSS-CVE Details client error: 403 Forbidden
+RSS feed CVE Details returned 403
+RSS-SecurityFocus request attempt 1/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 1: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 1068ms...
+GitHub request attempt 1/4: CVE-2025-23195 poc exploit vulnerability pentest toolkit
+GitHub API rate limited, skipping remaining 2 queries
+Set GITHUB_API_KEY environment variable to get 5000 requests/hour instead of 60.
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20poc%20exploit%20vulnerability%20exploit&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20poc%20exploit%20vulnerability%20vulnerability&order_by=star_count&sort=desc&per_page=20
+RSS-SecurityFocus request attempt 2/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 2: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 2136ms...
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20poc%20exploit%20vulnerability%20proof%20concept&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20poc%20exploit%20vulnerability%20demo&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20poc%20exploit%20vulnerability%20lab&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20poc%20exploit%20vulnerability%20reproduce&order_by=star_count&sort=desc&per_page=20
+RSS-SecurityFocus request attempt 3/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 3: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 3677ms...
+RSS-SecurityFocus request attempt 4/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 4: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus failed after 4 attempts
+No PoC sources found for CVE-2025-23195
+Generating fingerprinting data for CVE-2025-23195...
+Generated 7 fingerprinting commands for CVE-2025-23195
+Analyzing Docker deployment for CVE-2025-23195...
+GitHub API key not configured. Rate limits will be very restrictive (60 requests/hour).
+To improve PoC discovery, set GITHUB_API_KEY or GITHUB_TOKEN environment variable.
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20docker%20deployment%20setup&order_by=star_count&sort=desc&per_page=20  
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2025-23195%20docker%20deployment%20setup&page_size=25
+ExploitDB: Using RSS feed for CVE discovery (API endpoint unreliable)
+ExploitDB-RSS request attempt 1/4: https://www.exploit-db.com/rss.xml
+RSS-The Hacker News request attempt 1/4: https://feeds.feedburner.com/TheHackersNews
+GitHub API rate limited, skipping remaining 8 queries
+Set GITHUB_API_KEY environment variable to get 5000 requests/hour instead of 60.
+RSS-SANS ISC request attempt 1/4: https://isc.sans.edu/rssfeed.xml
+RSS-Krebs on Security request attempt 1/4: https://krebsonsecurity.com/feed/
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20docker%20deployment%20setup%20poc&order_by=star_count&sort=desc&per_page=20
+RSS-Schneier on Security request attempt 1/4: https://www.schneier.com/feed/
+RSS-BleepingComputer request attempt 1/4: https://www.bleepingcomputer.com/feed/
+RSS-CVE Details request attempt 1/4: https://www.cvedetails.com/rss.php
+RSS-CVE Details client error: 403 Forbidden
+RSS feed CVE Details returned 403
+RSS-SecurityFocus request attempt 1/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 1: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async DockerDeploymentService.analyzeDeploymentPossibilities (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/dockerDeploymentService.ts:194:30)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:740:40) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 1018ms...
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2025-23195%20docker%20deployment%20setup-poc&page_size=25
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20docker%20deployment%20setup%20exploit&order_by=star_count&sort=desc&per_page=20
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE2025-23195%20docker%20deployment%20setup&page_size=25
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20docker%20deployment%20setup%20vulnerability&order_by=star_count&sort=desc&per_page=20
+RSS-SecurityFocus request attempt 2/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 2: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async DockerDeploymentService.analyzeDeploymentPossibilities (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/dockerDeploymentService.ts:194:30)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:740:40) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 1776ms...
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20docker%20deployment%20setup%20proof%20concept&order_by=star_count&sort=desc&per_page=20
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=vulnerability-CVE-2025-23195%20docker%20deployment%20setup&page_size=25
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20docker%20deployment%20setup%20demo&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20docker%20deployment%20setup%20lab&order_by=star_count&sort=desc&per_page=20
+RSS-SecurityFocus request attempt 3/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2025-23195%20docker%20deployment%20setup%20reproduce&order_by=star_count&sort=desc&per_page=20
+RSS-SecurityFocus request failed on attempt 3: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async DockerDeploymentService.analyzeDeploymentPossibilities (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/dockerDeploymentService.ts:194:30)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:740:40) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 3890ms...
+10:36:14 AM [express] GET /api/scans 200 in 1ms :: [{"timeframeYears":3,"startDate":"2025-03-11","end…
+10:36:14 AM [express] GET /api/config 304 in 0ms :: {"githubToken":"github_pat_11AHUWS5I0T51KAWXnEjV4…
+RSS-SecurityFocus request attempt 4/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 4: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async DockerDeploymentService.analyzeDeploymentPossibilities (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/dockerDeploymentService.ts:194:30)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:740:40) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus failed after 4 attempts
+CVE CVE-2025-23195 is not suitable for Docker deployment
+Created new CVE CVE-2025-23195 with lab suitability score: 5.1
+Discovering comprehensive sources for CVE-2024-24780...
+GitHub API key not configured. Rate limits will be very restrictive (60 requests/hour).
+To improve PoC discovery, set GITHUB_API_KEY or GITHUB_TOKEN environment variable.
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20poc%20exploit%20vulnerability&order_by=star_count&sort=desc&per_page=20
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2024-24780%20poc%20exploit%20vulnerability&page_size=25
+ExploitDB: Using RSS feed for CVE discovery (API endpoint unreliable)
+ExploitDB-RSS request attempt 1/4: https://www.exploit-db.com/rss.xml
+RSS-The Hacker News request attempt 1/4: https://feeds.feedburner.com/TheHackersNews
+GitHub API rate limited, skipping remaining 8 queries
+Set GITHUB_API_KEY environment variable to get 5000 requests/hour instead of 60.
+RSS-SANS ISC request attempt 1/4: https://isc.sans.edu/rssfeed.xml
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2024-24780%20poc%20exploit%20vulnerability-poc&page_size=25
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE2024-24780%20poc%20exploit%20vulnerability&page_size=25
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20poc%20exploit%20vulnerability%20poc&order_by=star_count&sort=desc&per_page=20
+RSS-Krebs on Security request attempt 1/4: https://krebsonsecurity.com/feed/
+RSS-Schneier on Security request attempt 1/4: https://www.schneier.com/feed/
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=vulnerability-CVE-2024-24780%20poc%20exploit%20vulnerability&page_size=25
+RSS-BleepingComputer request attempt 1/4: https://www.bleepingcomputer.com/feed/
+RSS-CVE Details request attempt 1/4: https://www.cvedetails.com/rss.php
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20poc%20exploit%20vulnerability%20exploit&order_by=star_count&sort=desc&per_page=20
+RSS-CVE Details client error: 404 Not Found
+RSS feed CVE Details returned 404
+RSS-SecurityFocus request attempt 1/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 1: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 898ms...
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20poc%20exploit%20vulnerability%20vulnerability&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20poc%20exploit%20vulnerability%20proof%20concept&order_by=star_count&sort=desc&per_page=20
+RSS-SecurityFocus request attempt 2/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 2: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 2179ms...
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20poc%20exploit%20vulnerability%20demo&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20poc%20exploit%20vulnerability%20lab&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20poc%20exploit%20vulnerability%20reproduce&order_by=star_count&sort=desc&per_page=20
+RSS-SecurityFocus request attempt 3/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 3: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 3721ms...
+RSS-SecurityFocus request attempt 4/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 4: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus failed after 4 attempts
+No PoC sources found for CVE-2024-24780
+Generating fingerprinting data for CVE-2024-24780...
+Generated 13 fingerprinting commands for CVE-2024-24780
+Analyzing Docker deployment for CVE-2024-24780...
+GitHub API key not configured. Rate limits will be very restrictive (60 requests/hour).
+To improve PoC discovery, set GITHUB_API_KEY or GITHUB_TOKEN environment variable.
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20docker%20deployment%20setup&order_by=star_count&sort=desc&per_page=20  
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2024-24780%20docker%20deployment%20setup&page_size=25
+ExploitDB: Using RSS feed for CVE discovery (API endpoint unreliable)
+ExploitDB-RSS request attempt 1/4: https://www.exploit-db.com/rss.xml
+RSS-The Hacker News request attempt 1/4: https://feeds.feedburner.com/TheHackersNews
+GitHub API rate limited, skipping remaining 8 queries
+Set GITHUB_API_KEY environment variable to get 5000 requests/hour instead of 60.
+RSS-SANS ISC request attempt 1/4: https://isc.sans.edu/rssfeed.xml
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20docker%20deployment%20setup%20poc&order_by=star_count&sort=desc&per_page=20
+RSS-Krebs on Security request attempt 1/4: https://krebsonsecurity.com/feed/
+RSS-Schneier on Security request attempt 1/4: https://www.schneier.com/feed/
+RSS-BleepingComputer request attempt 1/4: https://www.bleepingcomputer.com/feed/
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2024-24780%20docker%20deployment%20setup-poc&page_size=25
+RSS-CVE Details request attempt 1/4: https://www.cvedetails.com/rss.php
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20docker%20deployment%20setup%20exploit&order_by=star_count&sort=desc&per_page=20
+RSS-CVE Details client error: 404 Not Found
+RSS feed CVE Details returned 404
+RSS-SecurityFocus request attempt 1/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 1: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async DockerDeploymentService.analyzeDeploymentPossibilities (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/dockerDeploymentService.ts:194:30)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:740:40) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 917ms...
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE2024-24780%20docker%20deployment%20setup&page_size=25
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20docker%20deployment%20setup%20vulnerability&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20docker%20deployment%20setup%20proof%20concept&order_by=star_count&sort=desc&per_page=20
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=vulnerability-CVE-2024-24780%20docker%20deployment%20setup&page_size=25
+RSS-SecurityFocus request attempt 2/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 2: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async DockerDeploymentService.analyzeDeploymentPossibilities (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/dockerDeploymentService.ts:194:30)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:740:40) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 2136ms...
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20docker%20deployment%20setup%20demo&order_by=star_count&sort=desc&per_page=20
+10:36:30 AM [express] GET /api/scans 304 in 0ms :: [{"timeframeYears":3,"startDate":"2025-03-11","end…
+10:36:30 AM [express] GET /api/config 304 in 0ms :: {"githubToken":"github_pat_11AHUWS5I0T51KAWXnEjV4…
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20docker%20deployment%20setup%20lab&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-24780%20docker%20deployment%20setup%20reproduce&order_by=star_count&sort=desc&per_page=20
+RSS-SecurityFocus request attempt 3/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 3: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async DockerDeploymentService.analyzeDeploymentPossibilities (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/dockerDeploymentService.ts:194:30)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:740:40) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 4020ms...
+RSS-SecurityFocus request attempt 4/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 4: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async DockerDeploymentService.analyzeDeploymentPossibilities (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/dockerDeploymentService.ts:194:30)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:740:40) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus failed after 4 attempts
+Generating automated deployment for CVE-2024-24780...
+GitHub API key not configured. Rate limits will be very restrictive (60 requests/hour).
+To improve PoC discovery, set GITHUB_API_KEY or GITHUB_TOKEN environment variable.
+GitHub API rate limited, skipping remaining 8 queries
+Set GITHUB_API_KEY environment variable to get 5000 requests/hour instead of 60.
+Docker deployment analysis completed for CVE-2024-24780: Deployable
+Created new CVE CVE-2024-24780 with lab suitability score: 8
+Discovering comprehensive sources for CVE-2024-11267...
+GitHub API key not configured. Rate limits will be very restrictive (60 requests/hour).
+To improve PoC discovery, set GITHUB_API_KEY or GITHUB_TOKEN environment variable.
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20poc%20exploit%20vulnerability&order_by=star_count&sort=desc&per_page=20
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2024-11267%20poc%20exploit%20vulnerability&page_size=25
+ExploitDB: Using RSS feed for CVE discovery (API endpoint unreliable)
+ExploitDB-RSS request attempt 1/4: https://www.exploit-db.com/rss.xml
+RSS-The Hacker News request attempt 1/4: https://feeds.feedburner.com/TheHackersNews
+GitHub API rate limited, skipping remaining 8 queries
+Set GITHUB_API_KEY environment variable to get 5000 requests/hour instead of 60.
+RSS-SANS ISC request attempt 1/4: https://isc.sans.edu/rssfeed.xml
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2024-11267%20poc%20exploit%20vulnerability-poc&page_size=25
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE2024-11267%20poc%20exploit%20vulnerability&page_size=25
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20poc%20exploit%20vulnerability%20poc&order_by=star_count&sort=desc&per_page=20
+RSS-Krebs on Security request attempt 1/4: https://krebsonsecurity.com/feed/
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=vulnerability-CVE-2024-11267%20poc%20exploit%20vulnerability&page_size=25
+RSS-Schneier on Security request attempt 1/4: https://www.schneier.com/feed/
+RSS-BleepingComputer request attempt 1/4: https://www.bleepingcomputer.com/feed/
+RSS-CVE Details request attempt 1/4: https://www.cvedetails.com/rss.php
+RSS-CVE Details client error: 403 Forbidden
+RSS feed CVE Details returned 403
+RSS-SecurityFocus request attempt 1/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 1: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 971ms...
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20poc%20exploit%20vulnerability%20exploit&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20poc%20exploit%20vulnerability%20vulnerability&order_by=star_count&sort=desc&per_page=20
+RSS-SecurityFocus request attempt 2/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 2: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 2149ms...
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20poc%20exploit%20vulnerability%20proof%20concept&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20poc%20exploit%20vulnerability%20demo&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20poc%20exploit%20vulnerability%20lab&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20poc%20exploit%20vulnerability%20reproduce&order_by=star_count&sort=desc&per_page=20
+RSS-SecurityFocus request attempt 3/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 3: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+RSS-SecurityFocus retrying in 4239ms...
+RSS-SecurityFocus request attempt 4/4: https://www.securityfocus.com/rss/vulnerabilities.xml
+RSS-SecurityFocus request failed on attempt 4: TypeError: fetch failed
+    at node:internal/deps/undici/undici:14130:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MultiSourceDiscoveryService.makeReliableRequest (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:85:26)
+    at async MultiSourceDiscoveryService.searchSecurityRSSFeeds (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:462:28)
+    at async Promise.allSettled (index 5)
+    at async MultiSourceDiscoveryService.discoverAllSources (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/services/multiSourceDiscoveryService.ts:225:21)
+    at async performCveScan (/mnt/c/Users/syeds/Downloads/vulnlab/VulnerableLabs/server/routes.ts:631:38) {
+  [cause]: Error: getaddrinfo ENOTFOUND www.securityfocus.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26) {
+    errno: -3008,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'www.securityfocus.com'
+  }
+}
+Circuit breaker opened for RSS-SecurityFocus after 5 failures
+RSS-SecurityFocus failed after 4 attempts
+No PoC sources found for CVE-2024-11267
+Generating fingerprinting data for CVE-2024-11267...
+Generated 15 fingerprinting commands for CVE-2024-11267
+Analyzing Docker deployment for CVE-2024-11267...
+GitHub API key not configured. Rate limits will be very restrictive (60 requests/hour).
+To improve PoC discovery, set GITHUB_API_KEY or GITHUB_TOKEN environment variable.
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20docker%20deployment%20setup&order_by=star_count&sort=desc&per_page=20  
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2024-11267%20docker%20deployment%20setup&page_size=25
+ExploitDB: Using RSS feed for CVE discovery (API endpoint unreliable)
+ExploitDB-RSS request attempt 1/4: https://www.exploit-db.com/rss.xml
+RSS-The Hacker News request attempt 1/4: https://feeds.feedburner.com/TheHackersNews
+GitHub API rate limited, skipping remaining 8 queries
+Set GITHUB_API_KEY environment variable to get 5000 requests/hour instead of 60.
+RSS-SANS ISC request attempt 1/4: https://isc.sans.edu/rssfeed.xml
+RSS-Krebs on Security request attempt 1/4: https://krebsonsecurity.com/feed/
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20docker%20deployment%20setup%20poc&order_by=star_count&sort=desc&per_page=20
+RSS-Schneier on Security request attempt 1/4: https://www.schneier.com/feed/
+RSS-BleepingComputer request attempt 1/4: https://www.bleepingcomputer.com/feed/
+RSS-CVE Details request attempt 1/4: https://www.cvedetails.com/rss.php
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE-2024-11267%20docker%20deployment%20setup-poc&page_size=25
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20docker%20deployment%20setup%20exploit&order_by=star_count&sort=desc&per_page=20
+RSS-CVE Details client error: 404 Not Found
+RSS feed CVE Details returned 404
+Circuit breaker open for RSS-SecurityFocus, skipping request
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=CVE2024-11267%20docker%20deployment%20setup&page_size=25
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20docker%20deployment%20setup%20vulnerability&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20docker%20deployment%20setup%20proof%20concept&order_by=star_count&sort=desc&per_page=20
+DockerHub request attempt 1/4: https://hub.docker.com/v2/search/repositories/?query=vulnerability-CVE-2024-11267%20docker%20deployment%20setup&page_size=25
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20docker%20deployment%20setup%20demo&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20docker%20deployment%20setup%20lab&order_by=star_count&sort=desc&per_page=20
+GitLab request attempt 1/4: https://gitlab.com/api/v4/projects?search=CVE-2024-11267%20docker%20deployment%20setup%20reproduce&order_by=star_count&sort=desc&per_page=20
+Generating automated deployment for CVE-2024-11267...
+GitHub API key not configured. Rate limits will be very restrictive (60 requests/hour).
+To improve PoC discovery, set GITHUB_API_KEY or GITHUB_TOKEN environment variable.
+GitHub API rate limited, skipping remaining 8 queries
+Set GITHUB_API_KEY environment variable to get 5000 requests/hour instead of 60.
+Docker deployment analysis completed for CVE-2024-11267: Deployable
+Created new CVE CVE-2024-11267 with lab suitability score: 6.7
+CVE scan completed successfully!
+📊 Results: 3 total, 2 deployable, 0 with PoC, 1 critical
+🔍 Enrichment: 3 discovered, 3 fingerprinted, 3 analyzed
+📈 Sources: 0 total sources discovered across all platforms
+⚠️  Failures: 0 enrichment failures occurred
+✅ Success rates: Discovery 100.0%, Fingerprinting 100.0%, Docker 100.0%
+10:36:55 AM [express] GET /api/scans 200 in 1ms :: [{"timeframeYears":3,"startDate":"2025-03-11","end…
+10:36:55 AM [express] GET /api/config 304 in 1ms :: {"githubToken":"github_pat_11AHUWS5I0T51KAWXnEjV4…
+10:36:57 AM [express] GET /api/cves 200 in 0ms :: [{"cveId":"CVE-2024-11267","description":"The JSP S…

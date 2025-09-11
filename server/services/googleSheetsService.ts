@@ -1,14 +1,38 @@
+import type { IStorage } from '../storage';
+
 interface GoogleSheetsRow {
   [key: string]: string | number | boolean;
 }
 
 export class GoogleSheetsService {
-  private readonly API_KEY = process.env.GOOGLE_SHEETS_API_KEY || process.env.GOOGLE_API_KEY || '';
   private readonly SHEETS_BASE_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
+  private storage: IStorage;
+
+  constructor(storage: IStorage) {
+    this.storage = storage;
+  }
+
+  /**
+   * Get Google API key from database configuration, fallback to environment variables
+   */
+  private async getApiKey(): Promise<string> {
+    try {
+      const config = await this.storage.getAppConfig();
+      if (config?.googleApiKey) {
+        return config.googleApiKey;
+      }
+    } catch (error) {
+      console.warn('Failed to retrieve Google API key from database config:', error);
+    }
+    
+    // Fallback to environment variables
+    return process.env.GOOGLE_SHEETS_API_KEY || process.env.GOOGLE_API_KEY || '';
+  }
 
   async exportToSheets(spreadsheetId: string, sheetName: string, data: any[]): Promise<boolean> {
-    if (!this.API_KEY) {
-      throw new Error('Google Sheets API key not configured');
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
+      throw new Error('Google Sheets API key not configured in database or environment variables');
     }
 
     try {
@@ -22,7 +46,7 @@ export class GoogleSheetsService {
       // Insert new data
       const encodedSheetName = encodeURIComponent(sheetName);
       const response = await fetch(
-        `${this.SHEETS_BASE_URL}/${spreadsheetId}/values/${encodedSheetName}:append?valueInputOption=USER_ENTERED&key=${this.API_KEY}`,
+        `${this.SHEETS_BASE_URL}/${spreadsheetId}/values/${encodedSheetName}:append?valueInputOption=USER_ENTERED&key=${apiKey}`,
         {
           method: 'POST',
           headers: {
@@ -46,12 +70,13 @@ export class GoogleSheetsService {
   }
 
   async createSpreadsheet(title: string): Promise<string> {
-    if (!this.API_KEY) {
-      throw new Error('Google Sheets API key not configured');
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
+      throw new Error('Google Sheets API key not configured in database or environment variables');
     }
 
     try {
-      const response = await fetch(`${this.SHEETS_BASE_URL}?key=${this.API_KEY}`, {
+      const response = await fetch(`${this.SHEETS_BASE_URL}?key=${apiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -81,9 +106,10 @@ export class GoogleSheetsService {
   }
 
   private async clearSheet(spreadsheetId: string, sheetName: string): Promise<void> {
+    const apiKey = await this.getApiKey();
     const encodedSheetName = encodeURIComponent(sheetName);
     const response = await fetch(
-      `${this.SHEETS_BASE_URL}/${spreadsheetId}/values/${encodedSheetName}:clear?key=${this.API_KEY}`,
+      `${this.SHEETS_BASE_URL}/${spreadsheetId}/values/${encodedSheetName}:clear?key=${apiKey}`,
       {
         method: 'POST',
         headers: {
@@ -138,13 +164,14 @@ export class GoogleSheetsService {
   }
 
   async validateSpreadsheetAccess(spreadsheetId: string): Promise<boolean> {
-    if (!this.API_KEY) {
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
       return false;
     }
 
     try {
       const response = await fetch(
-        `${this.SHEETS_BASE_URL}/${spreadsheetId}?key=${this.API_KEY}`,
+        `${this.SHEETS_BASE_URL}/${spreadsheetId}?key=${apiKey}`,
         {
           method: 'GET',
           headers: {
