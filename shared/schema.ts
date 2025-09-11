@@ -33,6 +33,14 @@ export const cves = pgTable("cves", {
   labSuitabilityScore: real("lab_suitability_score"),
   scoringBreakdown: jsonb("scoring_breakdown"),
   discoveryMetadata: jsonb("discovery_metadata"),
+  
+  // CVE Status Management
+  status: varchar("status", { length: 20 }).notNull().default("new"), // "new", "in_progress", "done", "unlisted"
+  listCategory: varchar("list_category", { length: 50 }), // custom list/category name
+  isPriority: boolean("is_priority").default(false), // flagged as priority/interesting
+  userNotes: text("user_notes"), // personal notes about the CVE
+  statusUpdatedAt: timestamp("status_updated_at").defaultNow(),
+  
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
@@ -133,6 +141,19 @@ export const insertMonitoringRunSchema = createInsertSchema(monitoringRuns).omit
   id: true,
   startedAt: true,
   completedAt: true,
+});
+
+// CVE Status Management Schemas
+export const cveStatusUpdateSchema = z.object({
+  status: z.enum(["new", "in_progress", "done", "unlisted"]).optional(),
+  listCategory: z.string().max(50).optional(),
+  isPriority: z.boolean().optional(),
+  userNotes: z.string().optional(),
+});
+
+export const cveBulkStatusUpdateSchema = z.object({
+  cveIds: z.array(z.string()).min(1, "At least one CVE ID is required"),
+  updates: cveStatusUpdateSchema,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

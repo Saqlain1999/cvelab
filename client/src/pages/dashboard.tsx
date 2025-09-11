@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Search } from "lucide-react";
@@ -8,8 +8,10 @@ import { StatsGrid } from "@/components/stats-grid";
 import { FilterPanel } from "@/components/filter-panel";
 import { CveTable } from "@/components/cve-table";
 import { CveDetailModal } from "@/components/cve-detail-modal";
+import { CveStatusDialog } from "@/components/cve-status-dialog";
 import { useToast } from "@/hooks/use-toast";
-import type { Cve, CveFilters } from "@/types/cve";
+import { queryClient } from "@/lib/queryClient";
+import type { Cve, CveFilters, CveStatusUpdate, BulkStatusUpdate } from "@/types/cve";
 
 export default function Dashboard() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -20,6 +22,8 @@ export default function Dashboard() {
   });
   const [selectedCve, setSelectedCve] = useState<Cve | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [statusCve, setStatusCve] = useState<Cve | null>(null);
+  const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
   const { toast } = useToast();
 
   const { data: cves = [], isLoading, refetch } = useQuery<Cve[]>({
@@ -72,12 +76,82 @@ export default function Dashboard() {
     }
   };
 
+  // Status management mutations
+  const statusUpdateMutation = useMutation({
+    mutationFn: async ({ cveId, updates }: { cveId: string; updates: CveStatusUpdate }) => {
+      const response = await fetch(`/api/cves/${cveId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!response.ok) throw new Error('Failed to update CVE status');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cves'] });
+    },
+  });
+
+  const bulkStatusUpdateMutation = useMutation({
+    mutationFn: async ({ cveIds, updates }: BulkStatusUpdate) => {
+      const response = await fetch('/api/cves/bulk-status', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cveIds, updates }),
+      });
+      if (!response.ok) throw new Error('Failed to bulk update CVE status');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cves'] });
+    },
+  });
+
+  // Status management handlers
+  const handleStatusUpdate = async (cveId: string, updates: CveStatusUpdate) => {
+    try {
+      await statusUpdateMutation.mutateAsync({ cveId, updates });
+      toast({
+        title: "Status Updated",
+        description: `CVE ${cveId} status has been updated successfully.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Update Failed",
+        description: "Failed to update CVE status. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBulkStatusUpdate = async (cveIds: string[], updates: CveStatusUpdate) => {
+    try {
+      await bulkStatusUpdateMutation.mutateAsync({ cveIds, updates });
+      toast({
+        title: "Bulk Update Complete",
+        description: `Successfully updated ${cveIds.length} CVEs.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Bulk Update Failed",
+        description: "Failed to update CVEs. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleManageStatus = (cve: Cve) => {
+    setStatusCve(cve);
+    setIsStatusDialogOpen(true);
+  };
+
   const handleExport = () => {
-    // Export filtered CVEs as CSV
+    // Export filtered CVEs as CSV with status fields
     const headers = [
       'CVE ID', 'Severity', 'CVSS Score', 'Published Date', 'Technology', 
-      'Category', 'Description', 'Has Public PoC', 'Docker Deployable', 
-      'Curl/Nmap Testable', 'PoC URLs', 'Attack Vector', 'Affected Versions'
+      'Category', 'Description', 'Status', 'Priority', 'List Category', 'User Notes',
+      'Has Public PoC', 'Docker Deployable', 'Curl/Nmap Testable', 'PoC URLs', 
+      'Attack Vector', 'Affected Versions'
     ];
     
     const csvData = [
@@ -90,6 +164,10 @@ export default function Dashboard() {
         cve.technology || cve.affectedProduct || 'Unknown',
         cve.category || 'Other',
         cve.description.substring(0, 200) + '...',
+        cve.status || 'new',
+        cve.isPriority ? 'Yes' : 'No',
+        cve.listCategory || '',
+        (cve.userNotes || '').substring(0, 100),
         cve.hasPublicPoc ? 'Yes' : 'No',
         cve.isDockerDeployable ? 'Yes' : 'No',
         cve.isCurlTestable ? 'Yes' : 'No',
@@ -222,6 +300,9 @@ export default function Dashboard() {
               onViewDetails={handleViewDetails}
               onExport={handleExport}
               onExportToSheets={handleExportToSheets}
+              onStatusUpdate={handleStatusUpdate}
+              onBulkStatusUpdate={handleBulkStatusUpdate}
+              onManageStatus={handleManageStatus}
             />
           </div>
         </main>
@@ -231,6 +312,13 @@ export default function Dashboard() {
         cve={selectedCve}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+      />
+
+      <CveStatusDialog
+        cve={statusCve}
+        isOpen={isStatusDialogOpen}
+        onClose={() => setIsStatusDialogOpen(false)}
+        onStatusUpdate={handleStatusUpdate}
       />
     </div>
   );

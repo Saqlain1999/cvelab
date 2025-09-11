@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCveSchema, insertCveScanSchema, advancedScoringConfigSchema } from "@shared/schema";
+import { insertCveSchema, insertCveScanSchema, advancedScoringConfigSchema, cveStatusUpdateSchema, cveBulkStatusUpdateSchema } from "@shared/schema";
 import { CveService } from "./services/cveService";
 import { GitHubService } from "./services/githubService";
 import { GoogleSheetsService } from "./services/googleSheetsService";
@@ -28,6 +28,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         minCvssScore: req.query.minCvssScore ? Number(req.query.minCvssScore) : undefined,
         maxCvssScore: req.query.maxCvssScore ? Number(req.query.maxCvssScore) : undefined,
         search: req.query.search ? String(req.query.search) : undefined,
+        status: req.query.status ? String(req.query.status).split(',') : undefined,
+        listCategory: req.query.listCategory ? String(req.query.listCategory).split(',') : undefined,
+        isPriority: req.query.isPriority ? req.query.isPriority === 'true' : undefined,
         limit: req.query.limit ? Number(req.query.limit) : 50,
         offset: req.query.offset ? Number(req.query.offset) : 0
       };
@@ -37,6 +40,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error fetching CVEs:', error);
       res.status(500).json({ message: 'Failed to fetch CVEs' });
+    }
+  });
+
+  // CVE List Management endpoints (must come before /api/cves/:id)
+  app.get("/api/cves/lists", async (req, res) => {
+    try {
+      const lists = await storage.getCveLists();
+      res.json(lists);
+    } catch (error) {
+      console.error('Error fetching CVE lists:', error);
+      res.status(500).json({ message: 'Failed to fetch CVE lists' });
+    }
+  });
+
+  app.get("/api/cves/status-stats", async (req, res) => {
+    try {
+      const stats = await storage.getCveStatusStats();
+      res.json(stats);
+    } catch (error) {
+      console.error('Error fetching status stats:', error);
+      res.status(500).json({ message: 'Failed to fetch status statistics' });
+    }
+  });
+
+  app.get("/api/cves/priority", async (req, res) => {
+    try {
+      const priorityCves = await storage.getPriorityCves();
+      res.json(priorityCves);
+    } catch (error) {
+      console.error('Error fetching priority CVEs:', error);
+      res.status(500).json({ message: 'Failed to fetch priority CVEs' });
+    }
+  });
+
+  app.patch("/api/cves/bulk-status", async (req, res) => {
+    try {
+      const bulkUpdate = cveBulkStatusUpdateSchema.parse(req.body);
+      const updatedCves = await storage.updateCveStatusBulk(bulkUpdate.cveIds, bulkUpdate.updates);
+      
+      res.json({ 
+        updatedCount: updatedCves.length,
+        updatedCves: updatedCves
+      });
+    } catch (error) {
+      console.error('Error bulk updating CVE status:', error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: 'Invalid request data', details: error.message });
+      }
+      res.status(500).json({ message: 'Failed to bulk update CVE status' });
+    }
+  });
+
+  app.patch("/api/cves/:id/status", async (req, res) => {
+    try {
+      const statusUpdate = cveStatusUpdateSchema.parse(req.body);
+      const updatedCve = await storage.updateCveStatus(req.params.id, statusUpdate);
+      
+      if (!updatedCve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+      
+      res.json(updatedCve);
+    } catch (error) {
+      console.error('Error updating CVE status:', error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: 'Invalid request data', details: error.message });
+      }
+      res.status(500).json({ message: 'Failed to update CVE status' });
     }
   });
 

@@ -47,6 +47,13 @@ export interface IStorage {
   getLastSuccessfulMonitoringRun(): Promise<MonitoringRun | undefined>;
   
   getCveStats(): Promise<CveStats>;
+  
+  // CVE List Management
+  updateCveStatus(id: string, updates: CveStatusUpdate): Promise<Cve | undefined>;
+  updateCveStatusBulk(ids: string[], updates: CveStatusUpdate): Promise<Cve[]>;
+  getCveLists(): Promise<CveListSummary[]>;
+  getCveStatusStats(): Promise<CveStatusStats>;
+  getPriorityCves(): Promise<Cve[]>;
 }
 
 export interface CveFilters {
@@ -58,6 +65,9 @@ export interface CveFilters {
   minCvssScore?: number;
   maxCvssScore?: number;
   search?: string;
+  status?: string[];
+  listCategory?: string[];
+  isPriority?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -67,6 +77,26 @@ export interface CveStats {
   deployable: number;
   withPoc: number;
   critical: number;
+}
+
+export interface CveStatusUpdate {
+  status?: string;
+  listCategory?: string;
+  isPriority?: boolean;
+  userNotes?: string;
+}
+
+export interface CveListSummary {
+  listCategory: string;
+  count: number;
+}
+
+export interface CveStatusStats {
+  new: number;
+  inProgress: number;
+  done: number;
+  unlisted: number;
+  total: number;
 }
 
 export class MemStorage implements IStorage {
@@ -112,7 +142,11 @@ export class MemStorage implements IStorage {
         fingerprintInfo: { testable: true },
         exploitabilityScore: 7.5,
         labSuitabilityScore: 8.9,
-        discoveryMetadata: null
+        discoveryMetadata: null,
+        status: "in_progress",
+        listCategory: "High Priority",
+        isPriority: true,
+        userNotes: "Good candidate for SSH penetration testing lab"
       },
       {
         cveId: "CVE-2024-4577",
@@ -135,7 +169,11 @@ export class MemStorage implements IStorage {
         fingerprintInfo: { testable: true },
         exploitabilityScore: 9.2,
         labSuitabilityScore: 9.5,
-        discoveryMetadata: null
+        discoveryMetadata: null,
+        status: "done",
+        listCategory: "Web Exploits",
+        isPriority: true,
+        userNotes: "Successfully tested in lab environment"
       },
       {
         cveId: "CVE-2024-3400",
@@ -158,7 +196,11 @@ export class MemStorage implements IStorage {
         fingerprintInfo: { testable: true },
         exploitabilityScore: 9.8,
         labSuitabilityScore: 7.2,
-        discoveryMetadata: null
+        discoveryMetadata: null,
+        status: "new",
+        listCategory: "Network Security",
+        isPriority: false,
+        userNotes: "Requires firewall hardware access"
       }
     ];
 
@@ -170,6 +212,7 @@ export class MemStorage implements IStorage {
         id,
         createdAt: now,
         updatedAt: now,
+        statusUpdatedAt: now,
         hasPublicPoc: cveData.hasPublicPoc || false,
         isDockerDeployable: cveData.isDockerDeployable || false,
         isCurlTestable: cveData.isCurlTestable || false
@@ -252,6 +295,20 @@ export class MemStorage implements IStorage {
           cve.technology?.toLowerCase().includes(searchLower) ||
           cve.affectedProduct?.toLowerCase().includes(searchLower)
         );
+      }
+      
+      if (filters.status && filters.status.length > 0) {
+        results = results.filter(cve => filters.status!.includes(cve.status || 'new'));
+      }
+      
+      if (filters.listCategory && filters.listCategory.length > 0) {
+        results = results.filter(cve => 
+          cve.listCategory && filters.listCategory!.includes(cve.listCategory)
+        );
+      }
+      
+      if (filters.isPriority !== undefined) {
+        results = results.filter(cve => cve.isPriority === filters.isPriority);
       }
       
       if (filters.offset) {
@@ -584,6 +641,93 @@ export class MemStorage implements IStorage {
       });
     
     return completedRuns[0];
+  }
+
+  // CVE List Management Methods
+  async updateCveStatus(id: string, updates: CveStatusUpdate): Promise<Cve | undefined> {
+    const existing = this.cves.get(id);
+    if (!existing) return undefined;
+    
+    const updated: Cve = { 
+      ...existing, 
+      ...updates, 
+      statusUpdatedAt: new Date(),
+      updatedAt: new Date() 
+    };
+    this.cves.set(id, updated);
+    return updated;
+  }
+
+  async updateCveStatusBulk(ids: string[], updates: CveStatusUpdate): Promise<Cve[]> {
+    const updatedCves: Cve[] = [];
+    
+    for (const id of ids) {
+      const updated = await this.updateCveStatus(id, updates);
+      if (updated) {
+        updatedCves.push(updated);
+      }
+    }
+    
+    return updatedCves;
+  }
+
+  async getCveLists(): Promise<CveListSummary[]> {
+    const allCves = Array.from(this.cves.values());
+    const listCounts = new Map<string, number>();
+    
+    allCves.forEach(cve => {
+      if (cve.listCategory) {
+        const currentCount = listCounts.get(cve.listCategory) || 0;
+        listCounts.set(cve.listCategory, currentCount + 1);
+      }
+    });
+    
+    return Array.from(listCounts.entries()).map(([listCategory, count]) => ({
+      listCategory,
+      count
+    })).sort((a, b) => a.listCategory.localeCompare(b.listCategory));
+  }
+
+  async getCveStatusStats(): Promise<CveStatusStats> {
+    const allCves = Array.from(this.cves.values());
+    
+    const stats = {
+      new: 0,
+      inProgress: 0,
+      done: 0,
+      unlisted: 0,
+      total: allCves.length
+    };
+    
+    allCves.forEach(cve => {
+      const status = cve.status || 'new';
+      switch (status) {
+        case 'new':
+          stats.new++;
+          break;
+        case 'in_progress':
+          stats.inProgress++;
+          break;
+        case 'done':
+          stats.done++;
+          break;
+        case 'unlisted':
+          stats.unlisted++;
+          break;
+        default:
+          stats.new++; // Default unknown statuses to 'new'
+          break;
+      }
+    });
+    
+    return stats;
+  }
+
+  async getPriorityCves(): Promise<Cve[]> {
+    const allCves = Array.from(this.cves.values());
+    return allCves
+      .filter(cve => cve.isPriority === true)
+      .sort((a, b) => new Date(b.statusUpdatedAt || b.updatedAt).getTime() - new Date(a.statusUpdatedAt || a.updatedAt).getTime());
   }
 }
 
