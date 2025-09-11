@@ -1,11 +1,19 @@
 import { Bug, Server, Code, AlertTriangle } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import type { CveStats } from "@/types/cve";
+import type { Cve } from "@/types/cve";
 
-export function StatsGrid() {
-  const { data: stats, isLoading } = useQuery<CveStats>({
-    queryKey: ["/api/stats"],
-  });
+interface StatsGridProps {
+  cves: Cve[];
+  isLoading?: boolean;
+}
+
+export function StatsGrid({ cves = [], isLoading }: StatsGridProps) {
+  // Calculate stats from the current filtered CVE data
+  const stats = {
+    totalCves: cves.length,
+    deployable: cves.filter(cve => cve.isDockerDeployable).length,
+    withPoc: cves.filter(cve => cve.hasPublicPoc).length,
+    critical: cves.filter(cve => cve.severity === 'CRITICAL').length,
+  };
 
   const statCards = [
     {

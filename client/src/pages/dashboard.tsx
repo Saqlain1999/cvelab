@@ -40,6 +40,7 @@ export default function Dashboard() {
 
   const handleClearFilters = () => {
     setFilters({
+      severity: ['CRITICAL', 'HIGH'],
       limit: 50,
       offset: 0
     });
@@ -204,7 +205,7 @@ export default function Dashboard() {
         
         {/* Content Area */}
         <main className="flex-1 p-6 overflow-auto">
-          <StatsGrid />
+          <StatsGrid cves={cves} isLoading={isLoading} />
           
           {/* Filters and Results */}
           <div className="flex flex-col lg:flex-row gap-6">
