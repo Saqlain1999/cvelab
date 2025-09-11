@@ -135,6 +135,197 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================================================
+  // Multi-Source CVE Discovery API Endpoints
+  // ============================================================================
+
+  /**
+   * Get multi-source discovery capabilities and source information
+   */
+  app.get("/api/discovery/sources", async (req, res) => {
+    try {
+      const capabilities = cveService.getMultiSourceCapabilities();
+      res.json(capabilities);
+    } catch (error) {
+      console.error('Error fetching multi-source capabilities:', error);
+      res.status(500).json({ message: 'Failed to fetch source capabilities' });
+    }
+  });
+
+  /**
+   * Get source reliability report and rankings
+   */
+  app.get("/api/discovery/reliability", async (req, res) => {
+    try {
+      const reliabilityReport = cveService.getSourceReliabilityReport();
+      res.json(reliabilityReport);
+    } catch (error) {
+      console.error('Error fetching reliability report:', error);
+      res.status(500).json({ message: 'Failed to fetch reliability report' });
+    }
+  });
+
+  /**
+   * Refresh source reliability scores (admin endpoint)
+   */
+  app.post("/api/discovery/reliability/refresh", async (req, res) => {
+    try {
+      await cveService.refreshSourceReliabilityScores();
+      const updatedReport = cveService.getSourceReliabilityReport();
+      res.json({ 
+        message: 'Reliability scores refreshed successfully',
+        report: updatedReport 
+      });
+    } catch (error) {
+      console.error('Error refreshing reliability scores:', error);
+      res.status(500).json({ message: 'Failed to refresh reliability scores' });
+    }
+  });
+
+  /**
+   * Get enhanced CVE statistics with source attribution
+   */
+  app.get("/api/stats/multi-source", async (req, res) => {
+    try {
+      const baseStats = await storage.getCveStats();
+      const reliabilityReport = cveService.getSourceReliabilityReport();
+      const capabilities = cveService.getMultiSourceCapabilities();
+      
+      const enhancedStats = {
+        ...baseStats,
+        multiSourceMetrics: {
+          availableSources: capabilities.availableSources,
+          healthySources: reliabilityReport.summary.healthySources,
+          averageReliability: reliabilityReport.summary.averageReliability,
+          sourcesNeedingAttention: reliabilityReport.summary.sourcesNeedingAttention,
+          topSources: reliabilityReport.sourceRankings.slice(0, 5).map(source => ({
+            name: source.displayName,
+            reliability: source.finalReliabilityScore,
+            successRate: source.successRate,
+            cvesProvided: source.totalCvesProvided
+          }))
+        },
+        lastUpdated: new Date()
+      };
+      
+      res.json(enhancedStats);
+    } catch (error) {
+      console.error('Error fetching enhanced multi-source stats:', error);
+      res.status(500).json({ message: 'Failed to fetch enhanced statistics' });
+    }
+  });
+
+  /**
+   * Get CVEs with detailed source attribution
+   */
+  app.get("/api/cves/with-sources", async (req, res) => {
+    try {
+      const filters = {
+        // Standard filters
+        severity: req.query.severity ? String(req.query.severity).split(',') : undefined,
+        technology: req.query.technology ? String(req.query.technology).split(',') : undefined,
+        hasPublicPoc: req.query.hasPublicPoc ? req.query.hasPublicPoc === 'true' : undefined,
+        isDockerDeployable: req.query.isDockerDeployable ? req.query.isDockerDeployable === 'true' : undefined,
+        search: req.query.search ? String(req.query.search) : undefined,
+        
+        // Multi-source specific filters
+        sources: req.query.sources ? String(req.query.sources).split(',') : undefined,
+        primarySource: req.query.primarySource ? String(req.query.primarySource) : undefined,
+        minReliabilityScore: req.query.minReliabilityScore ? Number(req.query.minReliabilityScore) : undefined,
+        hasConflicts: req.query.hasConflicts ? req.query.hasConflicts === 'true' : undefined,
+        minSourceCount: req.query.minSourceCount ? Number(req.query.minSourceCount) : undefined,
+        
+        limit: req.query.limit ? Number(req.query.limit) : 50,
+        offset: req.query.offset ? Number(req.query.offset) : 0
+      };
+
+      const cves = await storage.getCves(filters);
+      
+      // Enhance with source attribution data
+      const enhancedCves = cves.map(cve => ({
+        ...cve,
+        sourceAttribution: {
+          sources: cve.sources || ['nist'], // Default to NIST for legacy data
+          primarySource: cve.primarySource || 'nist',
+          reliability: cve.sourceReliabilityScore || 0.95,
+          hasConflicts: !!(cve.sourceConflicts && cve.sourceConflicts.length > 0),
+          validationStatus: cve.crossSourceValidation?.validationStatus || 'single_source',
+          deduplicationFingerprint: cve.deduplicationFingerprint
+        }
+      }));
+      
+      res.json(enhancedCves);
+    } catch (error) {
+      console.error('Error fetching CVEs with source attribution:', error);
+      res.status(500).json({ message: 'Failed to fetch CVEs with source attribution' });
+    }
+  });
+
+  /**
+   * Trigger a test multi-source discovery for a specific CVE ID
+   */
+  app.post("/api/discovery/test/:cveId", async (req, res) => {
+    try {
+      const { cveId } = req.params;
+      const { sources } = req.body;
+      
+      if (!cveId || !cveId.match(/^CVE-\d{4}-\d+$/)) {
+        return res.status(400).json({ message: 'Invalid CVE ID format' });
+      }
+
+      console.log(`Testing multi-source discovery for ${cveId}`);
+      
+      // This would trigger a test discovery - for now, return mock data
+      const testResult = {
+        cveId,
+        requestedSources: sources || ['all'],
+        discoveryTimestamp: new Date(),
+        message: 'Multi-source discovery test initiated',
+        note: 'This is a test endpoint - full implementation would trigger actual discovery'
+      };
+      
+      res.json(testResult);
+    } catch (error) {
+      console.error('Error testing multi-source discovery:', error);
+      res.status(500).json({ message: 'Failed to test multi-source discovery' });
+    }
+  });
+
+  /**
+   * Get source conflict resolution details for specific CVEs
+   */
+  app.get("/api/cves/:id/conflicts", async (req, res) => {
+    try {
+      const cve = await storage.getCve(req.params.id);
+      if (!cve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+
+      const conflicts = {
+        cveId: cve.cveId,
+        hasConflicts: !!(cve.sourceConflicts && cve.sourceConflicts.length > 0),
+        conflicts: cve.sourceConflicts || [],
+        crossSourceValidation: cve.crossSourceValidation || {
+          totalSources: 1,
+          consistentFields: [],
+          conflictingFields: [],
+          confidence: 0.8,
+          validationStatus: 'single_source'
+        },
+        resolution: {
+          primarySource: cve.primarySource || 'nist',
+          reliabilityScore: cve.sourceReliabilityScore || 0.95,
+          resolutionMethod: 'reliability_weighted'
+        }
+      };
+
+      res.json(conflicts);
+    } catch (error) {
+      console.error('Error fetching CVE conflicts:', error);
+      res.status(500).json({ message: 'Failed to fetch CVE conflict information' });
+    }
+  });
+
   // Fingerprinting endpoints
   app.get("/api/cves/:id/fingerprint", async (req, res) => {
     try {
@@ -281,7 +472,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Starting targeted CVE scan for ${timeframeYears} years...`);
       await storage.updateCveScan(scanId, { currentPhase: 'fetching' });
       
-      const nistCves = await cveService.fetchCvesFromNist({
+      // Enhanced CVE discovery using multi-source approach
+      const discoveredCves = await cveService.fetchCvesFromAllSources({
         timeframeYears,
         severities: ['HIGH', 'CRITICAL'],
         attackVector: ['NETWORK'],
@@ -295,7 +487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'server-side request forgery', 'xml external entity', 'file upload'
         ]
       });
-      console.log(`Fetched ${nistCves.length} lab-suitable CVEs from NIST`);
+      console.log(`Multi-source discovery completed: ${discoveredCves.length} lab-suitable CVEs from multiple platforms`);
       
       await storage.updateCveScan(scanId, { currentPhase: 'enriching' });
       
@@ -322,7 +514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       // Process each CVE
-      for (const cveData of nistCves) {
+      for (const cveData of discoveredCves) {
         // Initialize Docker capability flags for this CVE
         let hasActualDockerCapability = false;
         let hasDockerHubContainers = false;

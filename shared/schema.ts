@@ -34,6 +34,17 @@ export const cves = pgTable("cves", {
   scoringBreakdown: jsonb("scoring_breakdown"),
   discoveryMetadata: jsonb("discovery_metadata"),
   
+  // Multi-Source CVE Discovery
+  sources: text("sources").array().notNull().default(sql`'{}'`), // List of sources that provided this CVE (nist, cvedetails, vulners, etc.)
+  primarySource: text("primary_source").notNull().default("nist"), // The source considered most authoritative for this CVE
+  sourceMetadata: jsonb("source_metadata"), // Metadata from each source with source attribution
+  sourceReliabilityScore: real("source_reliability_score").default(1.0), // Weighted score based on source reliability
+  deduplicationFingerprint: text("deduplication_fingerprint"), // Hash for deduplication across sources
+  duplicateIds: text("duplicate_ids").array(), // List of CVE IDs that are duplicates from other sources
+  crossSourceValidation: jsonb("cross_source_validation"), // Validation status across sources
+  lastSourceSync: timestamp("last_source_sync").default(sql`now()`), // Last time sources were synchronized
+  sourceConflicts: jsonb("source_conflicts"), // Conflicts detected between sources
+  
   // CVE Status Management
   status: varchar("status", { length: 20 }).notNull().default("new"), // "new", "in_progress", "done", "unlisted"
   listCategory: varchar("list_category", { length: 50 }), // custom list/category name
@@ -108,6 +119,55 @@ export const monitoringRuns = pgTable("monitoring_runs", {
   lastProcessedDate: timestamp("last_processed_date"),
 });
 
+// Multi-Source CVE Discovery Configuration
+export const cveSourceConfigs = pgTable("cve_source_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceName: varchar("source_name", { length: 50 }).notNull().unique(), // 'nist', 'cvedetails', 'vulners', 'mitre', etc.
+  displayName: text("display_name").notNull(), // Human-readable source name
+  baseUrl: text("base_url").notNull(), // Base URL for the source API
+  isEnabled: boolean("is_enabled").default(true),
+  reliabilityScore: real("reliability_score").default(1.0), // 0.0 to 1.0, weight for deduplication
+  priority: real("priority").default(1), // Processing priority (higher = processed first)
+  rateLimitPerMinute: real("rate_limit_per_minute").default(60),
+  rateLimitPerHour: real("rate_limit_per_hour").default(1000),
+  timeout: real("timeout").default(30), // Request timeout in seconds
+  retryAttempts: real("retry_attempts").default(3),
+  circuitBreakerThreshold: real("circuit_breaker_threshold").default(5),
+  lastHealthCheck: timestamp("last_health_check"),
+  healthStatus: varchar("health_status", { length: 20 }).default("unknown"), // 'healthy', 'degraded', 'down', 'unknown'
+  configuration: jsonb("configuration"), // Source-specific configuration
+  apiKeyRequired: boolean("api_key_required").default(false),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+// Track CVE discovery operations across sources
+export const multiSourceCveScans = pgTable("multi_source_cve_scans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  timeframeYears: real("timeframe_years").notNull().default(3),
+  enabledSources: text("enabled_sources").array().notNull(), // List of source names used in this scan
+  
+  // Overall discovery metrics
+  totalCvesDiscovered: real("total_cves_discovered").default(0),
+  uniqueCvesAfterDeduplication: real("unique_cves_after_deduplication").default(0),
+  duplicatesDetected: real("duplicates_detected").default(0),
+  sourceConflictsDetected: real("source_conflicts_detected").default(0),
+  
+  // Per-source breakdown
+  sourceBreakdown: jsonb("source_breakdown"), // { "nist": 1000, "vulners": 1200, etc. }
+  sourcePerformance: jsonb("source_performance"), // Response times, error rates per source
+  deduplicationMetrics: jsonb("deduplication_metrics"), // Detailed deduplication statistics
+  
+  // Scan progress and status
+  status: text("status").notNull().default("pending"), // 'pending', 'running', 'completed', 'failed'
+  currentPhase: text("current_phase").default("initializing"), // 'initializing', 'fetching', 'deduplicating', 'enriching', 'finalizing'
+  progressPercentage: real("progress_percentage").default(0),
+  
+  startedAt: timestamp("started_at").default(sql`now()`),
+  completedAt: timestamp("completed_at"),
+  errorMessage: text("error_message"),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -143,6 +203,18 @@ export const insertMonitoringRunSchema = createInsertSchema(monitoringRuns).omit
   completedAt: true,
 });
 
+export const insertCveSourceConfigSchema = createInsertSchema(cveSourceConfigs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertMultiSourceCveScanSchema = createInsertSchema(multiSourceCveScans).omit({
+  id: true,
+  startedAt: true,
+  completedAt: true,
+});
+
 // CVE Status Management Schemas
 export const cveStatusUpdateSchema = z.object({
   status: z.enum(["new", "in_progress", "done", "unlisted"]).optional(),
@@ -168,6 +240,10 @@ export type InsertCveAlert = z.infer<typeof insertCveAlertSchema>;
 export type CveAlert = typeof cveAlerts.$inferSelect;
 export type InsertMonitoringRun = z.infer<typeof insertMonitoringRunSchema>;
 export type MonitoringRun = typeof monitoringRuns.$inferSelect;
+export type InsertCveSourceConfig = z.infer<typeof insertCveSourceConfigSchema>;
+export type CveSourceConfig = typeof cveSourceConfigs.$inferSelect;
+export type InsertMultiSourceCveScan = z.infer<typeof insertMultiSourceCveScanSchema>;
+export type MultiSourceCveScan = typeof multiSourceCveScans.$inferSelect;
 
 // Advanced Scoring Configuration Schema
 export const advancedScoringConfigSchema = z.object({

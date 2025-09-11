@@ -1,4 +1,7 @@
 import { advancedScoringService } from "./advancedScoringService";
+import { MultiSourceCveDiscoveryService, CveDiscoveryOptions, EnrichedCveData } from "./multiSourceCveDiscoveryService";
+import { ReliabilityScoringService } from "./reliabilityScoringService";
+import { getAdapterConfigurations } from "./sourceAdapters";
 
 interface NistCveResponse {
   vulnerabilities: Array<{
@@ -50,6 +53,15 @@ interface CveTargetingOptions {
 export class CveService {
   private readonly BASE_URL = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
   
+  // Multi-source discovery services
+  private multiSourceDiscovery: MultiSourceCveDiscoveryService;
+  private reliabilityScoring: ReliabilityScoringService;
+  
+  constructor() {
+    this.multiSourceDiscovery = new MultiSourceCveDiscoveryService();
+    this.reliabilityScoring = new ReliabilityScoringService();
+  }
+  
   // Lab-suitable technologies and their CPE patterns
   private readonly LAB_SUITABLE_CPE_PATTERNS = [
     // Web Servers
@@ -99,6 +111,79 @@ export class CveService {
     'CWE-269'   // Improper Privilege Management
   ];
   
+  /**
+   * Enhanced CVE discovery using multiple sources for comprehensive coverage
+   * This method now orchestrates discovery from multiple platforms beyond just NIST
+   */
+  async fetchCvesFromAllSources(options: CveTargetingOptions = {}): Promise<any[]> {
+    const {
+      timeframeYears = 3,
+      severities = ['HIGH', 'CRITICAL'],
+      keywords = [],
+      onlyLabSuitable = true,
+      targetedCweIds = this.TARGET_CWE_IDS
+    } = options;
+
+    console.log('CveService: Starting comprehensive multi-source CVE discovery');
+    console.log(`Discovery options: ${timeframeYears} years, severities: ${severities.join(',')}, lab-suitable: ${onlyLabSuitable}`);
+
+    try {
+      // Prepare discovery options for multi-source service
+      const discoveryOptions: CveDiscoveryOptions = {
+        timeframeYears,
+        severities: severities.map(s => s.toUpperCase()),
+        keywords: keywords.length > 0 ? keywords : [
+          'remote code execution', 'sql injection', 'cross-site scripting',
+          'path traversal', 'deserialization', 'command injection'
+        ],
+        technologies: this.extractTechnologiesFromLabPatterns(),
+        maxResultsPerSource: 500,
+        includeHistorical: timeframeYears > 1,
+        prioritizeSources: ['mitre', 'vulners', 'cvedetails'] // Prioritize most reliable sources
+      };
+
+      // Discover CVEs from all configured sources
+      const discoveryResult = await this.multiSourceDiscovery.discoverCvesFromAllSources(discoveryOptions);
+
+      console.log(`Multi-source discovery completed:`);
+      console.log(`- Total unique CVEs discovered: ${discoveryResult.discoveredCves.length}`);
+      console.log(`- Sources used: ${Object.keys(discoveryResult.sourceBreakdown).join(', ')}`);
+      console.log(`- Duplicates detected: ${discoveryResult.deduplicationResult.duplicatesDetected}`);
+      console.log(`- Source conflicts: ${discoveryResult.deduplicationResult.sourceConflicts.length}`);
+
+      // Transform enriched CVE data to legacy format for compatibility
+      const transformedCves = discoveryResult.discoveredCves.map(enrichedCve => 
+        this.transformEnrichedCveToLegacyFormat(enrichedCve)
+      );
+
+      // Apply legacy filtering for lab suitability if requested
+      let filteredCves = transformedCves;
+      if (onlyLabSuitable) {
+        filteredCves = this.filterForLabSuitability(transformedCves, {
+          excludeAuthenticated: true,
+          attackVector: ['NETWORK'],
+          attackComplexity: ['LOW'],
+          userInteraction: ['NONE']
+        });
+      }
+
+      // Record source performance for reliability scoring
+      this.recordDiscoveryPerformance(discoveryResult);
+
+      console.log(`Final CVE count after filtering: ${filteredCves.length}`);
+      return filteredCves;
+
+    } catch (error) {
+      console.error('CveService: Multi-source discovery failed, falling back to NIST-only:', error);
+      
+      // Fallback to NIST-only discovery if multi-source fails
+      return await this.fetchCvesFromNist(options);
+    }
+  }
+
+  /**
+   * Legacy NIST-only method maintained for backward compatibility and fallback
+   */
   async fetchCvesFromNist(options: CveTargetingOptions = {}): Promise<any[]> {
     const {
       timeframeYears = 3,
@@ -581,5 +666,199 @@ export class CveService {
     ];
     
     return labSuitableKeywords.some(keyword => product.includes(keyword));
+  }
+
+  // ============================================================================
+  // Multi-Source Integration Helper Methods
+  // ============================================================================
+
+  /**
+   * Extract technology names from lab-suitable CPE patterns for multi-source discovery
+   */
+  private extractTechnologiesFromLabPatterns(): string[] {
+    const technologies: string[] = [];
+    
+    for (const cpePattern of this.LAB_SUITABLE_CPE_PATTERNS) {
+      // Extract technology name from CPE pattern
+      // Example: 'cpe:2.3:a:apache:http_server' -> 'apache'
+      const parts = cpePattern.split(':');
+      if (parts.length >= 4) {
+        technologies.push(parts[3]); // Vendor name
+        if (parts.length >= 5 && parts[4] !== parts[3]) {
+          technologies.push(parts[4]); // Product name if different
+        }
+      }
+    }
+
+    // Add common technology keywords for better discovery
+    technologies.push(
+      'wordpress', 'drupal', 'joomla', 'magento',
+      'apache', 'nginx', 'tomcat', 'iis',
+      'mysql', 'postgresql', 'mongodb', 'redis',
+      'openssh', 'bind', 'squid', 'postfix',
+      'nodejs', 'laravel', 'django', 'rails'
+    );
+
+    return [...new Set(technologies)]; // Remove duplicates
+  }
+
+  /**
+   * Transform enriched multi-source CVE data to legacy format for backward compatibility
+   */
+  private transformEnrichedCveToLegacyFormat(enrichedCve: EnrichedCveData): any {
+    return {
+      cveId: enrichedCve.cveId,
+      description: enrichedCve.description,
+      publishedDate: enrichedCve.publishedDate,
+      lastModifiedDate: enrichedCve.lastModifiedDate,
+      cvssScore: enrichedCve.cvssScore,
+      cvssVector: enrichedCve.cvssVector,
+      severity: enrichedCve.severity,
+      affectedProduct: enrichedCve.affectedProducts?.[0] || 'Unknown',
+      affectedVersions: enrichedCve.affectedProducts || [],
+      attackVector: this.extractAttackVector(enrichedCve.cvssVector),
+      technology: enrichedCve.affectedProducts?.[0] || 'Unknown',
+      category: this.categorizeVulnerability({ 
+        descriptions: [{ lang: 'en', value: enrichedCve.description }] 
+      }),
+      hasPublicPoc: false, // Will be determined by GitHub/ExploitDB search
+      isDockerDeployable: false, // Will be determined by analysis
+      isCurlTestable: false, // Will be determined by analysis
+      pocUrls: [],
+      dockerInfo: null,
+      fingerprintInfo: null,
+      exploitabilityScore: this.calculateExploitabilityScore(null),
+      labSuitabilityScore: 0, // Will be calculated after PoC analysis
+      
+      // Enhanced multi-source metadata
+      sources: enrichedCve.sources,
+      primarySource: enrichedCve.primarySource,
+      sourceReliabilityScore: enrichedCve.sourceReliabilityScore,
+      deduplicationFingerprint: enrichedCve.deduplicationFingerprint,
+      crossSourceValidation: enrichedCve.crossSourceValidation,
+      sourceConflicts: enrichedCve.sourceConflicts,
+      consolidatedMetadata: enrichedCve.consolidatedMetadata,
+      
+      // Legacy compatibility metadata
+      discoveryMetadata: {
+        multiSourceDiscovery: true,
+        sources: enrichedCve.sources,
+        totalSources: enrichedCve.sources.length,
+        primarySource: enrichedCve.primarySource,
+        reliability: enrichedCve.sourceReliabilityScore,
+        deduplicationFingerprint: enrichedCve.deduplicationFingerprint,
+        lastEnhanced: new Date()
+      }
+    };
+  }
+
+  /**
+   * Record discovery performance metrics for reliability scoring
+   */
+  private recordDiscoveryPerformance(discoveryResult: any): void {
+    try {
+      // Record performance for each source that participated
+      for (const [sourceName, count] of Object.entries(discoveryResult.sourceBreakdown)) {
+        const sourceHealth = discoveryResult.sourceHealth.find((h: any) => h.sourceName === sourceName);
+        
+        if (sourceHealth) {
+          this.reliabilityScoring.recordSourcePerformance({
+            sourceName,
+            timestamp: new Date(),
+            responseTime: sourceHealth.responseTime,
+            success: sourceHealth.isHealthy,
+            cvesReturned: Number(count),
+            conflictsDetected: discoveryResult.deduplicationResult.sourceConflicts
+              .filter((c: any) => Object.keys(c.values).includes(sourceName)).length,
+            duplicatesDetected: 0 // Would need more detailed tracking
+          });
+        }
+      }
+
+      // Record cross-source validations for reliability scoring
+      if (discoveryResult.deduplicationResult.sourceConflicts.length > 0) {
+        for (const conflict of discoveryResult.deduplicationResult.sourceConflicts) {
+          // Create a validation record for each conflict resolution
+          const sourceAgreements: Record<string, boolean> = {};
+          const resolvedValue = conflict.resolvedValue;
+          
+          for (const [source, value] of Object.entries(conflict.values)) {
+            sourceAgreements[source] = value === resolvedValue;
+          }
+
+          this.reliabilityScoring.recordCrossSourceValidation({
+            cveId: 'CONFLICT_RESOLUTION', // Would need CVE ID from conflict context
+            sourceAgreements,
+            majorityFields: [],
+            conflictFields: [conflict.field],
+            consensusReached: conflict.resolution === 'auto',
+            validationTimestamp: new Date()
+          });
+        }
+      }
+
+      console.log(`CveService: Recorded performance metrics for ${Object.keys(discoveryResult.sourceBreakdown).length} sources`);
+
+    } catch (error) {
+      console.error('CveService: Failed to record discovery performance:', error);
+    }
+  }
+
+  /**
+   * Get source reliability scores for API consumers
+   */
+  public getSourceReliabilityReport(): any {
+    try {
+      return this.reliabilityScoring.generateReliabilityReport();
+    } catch (error) {
+      console.error('CveService: Failed to generate reliability report:', error);
+      return {
+        summary: { totalSources: 0, averageReliability: 0, healthySources: 0, sourcesNeedingAttention: 0 },
+        sourceRankings: [],
+        recommendations: []
+      };
+    }
+  }
+
+  /**
+   * Get detailed metrics about multi-source discovery capabilities
+   */
+  public getMultiSourceCapabilities(): any {
+    try {
+      // Get adapter configurations
+      const adapters = getAdapterConfigurations();
+      
+      return {
+        availableSources: adapters.length,
+        sourceCapabilities: adapters,
+        reliabilityRankings: this.reliabilityScoring.getSourceReliabilityRanking(),
+        lastUpdated: new Date()
+      };
+    } catch (error) {
+      console.error('CveService: Failed to get multi-source capabilities:', error);
+      return {
+        availableSources: 0,
+        sourceCapabilities: [],
+        reliabilityRankings: [],
+        lastUpdated: new Date()
+      };
+    }
+  }
+
+  /**
+   * Force a reliability score recalculation for all sources
+   */
+  public async refreshSourceReliabilityScores(): Promise<void> {
+    try {
+      const adapters = getAdapterConfigurations();
+      
+      for (const adapter of adapters) {
+        this.reliabilityScoring.calculateSourceReliability(adapter.sourceName);
+      }
+      
+      console.log('CveService: Refreshed reliability scores for all sources');
+    } catch (error) {
+      console.error('CveService: Failed to refresh reliability scores:', error);
+    }
   }
 }
