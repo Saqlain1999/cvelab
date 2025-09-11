@@ -259,7 +259,8 @@ export class MemStorage implements IStorage {
       isCurlTestable: insertCve.isCurlTestable ?? null,
       dockerInfo: insertCve.dockerInfo ?? null,
       fingerprintInfo: insertCve.fingerprintInfo ?? null,
-      discoveryMetadata: insertCve.discoveryMetadata ?? null
+      discoveryMetadata: insertCve.discoveryMetadata ?? null,
+      sources: insertCve.sources ?? []
     };
     this.cves.set(id, cve);
     return cve;
