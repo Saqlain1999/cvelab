@@ -329,7 +329,7 @@ export abstract class BaseSourceAdapter implements CveSourceAdapter {
   }
 
   // Utility methods
-  private delay(ms: number): Promise<void> {
+  protected delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

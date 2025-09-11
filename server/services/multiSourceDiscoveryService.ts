@@ -292,12 +292,16 @@ export class MultiSourceDiscoveryService {
     if (cached) return cached;
 
     try {
+      // Enhanced search queries specifically for PoC discovery
       const searchQueries = [
         options.query,
         `${options.query} poc`,
         `${options.query} exploit`,
         `${options.query} vulnerability`,
-        `${options.query} proof concept`
+        `${options.query} proof concept`,
+        `${options.query} demo`,
+        `${options.query} lab`,
+        `${options.query} reproduce`
       ];
 
       const allRepos: PocSource[] = [];
@@ -310,13 +314,24 @@ export class MultiSourceDiscoveryService {
           if (response?.ok) {
             const projects = await response.json();
             const relevantRepos = projects
-              ?.filter((project: any) => 
-                project.name?.toLowerCase().includes(options.query.toLowerCase()) ||
-                project.description?.toLowerCase().includes(options.query.toLowerCase()) ||
-                project.name?.toLowerCase().includes('cve') ||
-                project.name?.toLowerCase().includes('poc') ||
-                project.name?.toLowerCase().includes('exploit')
-              )
+              ?.filter((project: any) => {
+                const name = project.name?.toLowerCase() || '';
+                const description = project.description?.toLowerCase() || '';
+                const queryLower = options.query.toLowerCase();
+                
+                // More comprehensive filtering for PoC repositories
+                return (
+                  name.includes(queryLower) ||
+                  description.includes(queryLower) ||
+                  name.includes('cve') ||
+                  name.includes('poc') ||
+                  name.includes('exploit') ||
+                  name.includes('vulnerability') ||
+                  description.includes('poc') ||
+                  description.includes('exploit') ||
+                  description.includes('vulnerability')
+                );
+              })
               .map((project: any) => ({
                 type: 'gitlab' as const,
                 title: project.name,
@@ -424,18 +439,20 @@ export class MultiSourceDiscoveryService {
     if (cached) return cached;
 
     try {
-      // Comprehensive list of free security RSS feeds
+      // Curated list of reliable security RSS feeds
       const securityFeeds = [
-        { name: 'Packet Storm Security', url: 'https://rss.packetstormsecurity.com/news/' },
+        // Removed: Packet Storm (SSL certificate issues)
         { name: 'The Hacker News', url: 'https://feeds.feedburner.com/TheHackersNews' },
         { name: 'SANS ISC', url: 'https://isc.sans.edu/rssfeed.xml' },
         { name: 'Krebs on Security', url: 'https://krebsonsecurity.com/feed/' },
         { name: 'Schneier on Security', url: 'https://www.schneier.com/feed/' },
-        { name: 'Threatpost', url: 'https://threatpost.com/feed/' },
-        { name: 'Dark Reading', url: 'https://www.darkreading.com/rss_simple.asp' },
-        { name: 'Security Week', url: 'https://www.securityweek.com/feed/' },
+        // Removed: Threatpost (deprecated domain)
+        // Removed: Dark Reading (403 access blocked)
+        // Removed: Security Week (403 access blocked)  
         { name: 'BleepingComputer', url: 'https://www.bleepingcomputer.com/feed/' },
-        { name: 'Vulnerability Lab', url: 'https://www.vulnerability-lab.com/rss.php' }
+        // Removed: Vulnerability Lab (404 not found)
+        { name: 'CVE Details', url: 'https://www.cvedetails.com/rss.php' },
+        { name: 'SecurityFocus', url: 'https://www.securityfocus.com/rss/vulnerabilities.xml' }
       ];
 
       const allBlogPosts: PocSource[] = [];
@@ -485,35 +502,24 @@ export class MultiSourceDiscoveryService {
     if (cached) return cached;
 
     try {
-      // Search ExploitDB for public exploits
-      const response = await fetch(
-        `https://www.exploit-db.com/api/v1/search/${encodeURIComponent(options.query)}`
+      // ExploitDB API often returns HTML instead of JSON, so we'll skip direct API
+      // and rely on CSV data or RSS feed instead
+      console.log('ExploitDB: Using RSS feed for CVE discovery (API endpoint unreliable)');
+      
+      const exploitDbRss = await this.makeReliableRequest(
+        'https://www.exploit-db.com/rss.xml', 
+        { headers: { 'User-Agent': 'CVE-Lab-Hunter/2.0' } },
+        'ExploitDB-RSS'
       );
-
-      if (response.ok) {
-        const data = await response.json();
-        const exploits = data.data
-          ?.map((exploit: any) => ({
-            type: 'exploitdb' as const,
-            title: exploit.title,
-            url: `https://www.exploit-db.com/exploits/${exploit.id}`,
-            description: exploit.description || exploit.title,
-            author: exploit.author,
-            publishedDate: new Date(exploit.date),
-            relevanceScore: this.calculateExploitDBRelevance(exploit, options.query),
-            tags: ['exploit', 'exploitdb', 'poc'],
-            metadata: {
-              platform: exploit.platform,
-              type: exploit.type,
-              verified: exploit.verified,
-              exploitId: exploit.id
-            }
-          })) || [];
-
+      
+      if (exploitDbRss?.ok) {
+        const rssText = await exploitDbRss.text();
+        const exploits = this.parseRSSForCVE(rssText, options.query, 'ExploitDB');
         this.setCached(cacheKey, exploits);
         return exploits;
       }
 
+      console.warn('ExploitDB RSS feed unavailable, skipping ExploitDB search');
       return [];
     } catch (error) {
       console.error('ExploitDB search failed:', error);

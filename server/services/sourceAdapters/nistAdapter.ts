@@ -215,7 +215,7 @@ export class NistAdapter extends BaseSourceAdapter {
       description: this.cleanDescription(description),
       publishedDate: this.parseDate(cve.published),
       lastModifiedDate: this.parseDate(cve.lastModified),
-      cvssScore: this.parseCvssScore(metrics?.cvssData?.baseScore),
+      cvssScore: this.parseCvssScore(metrics?.cvssData?.baseScore) ?? undefined,
       cvssVector: metrics?.cvssData?.vectorString || null,
       severity: this.normalizeSeverity(metrics?.cvssData?.baseSeverity) || 'UNKNOWN',
       affectedProducts: affectedProducts.length > 0 ? affectedProducts : undefined,
@@ -363,7 +363,4 @@ export class NistAdapter extends BaseSourceAdapter {
     return filtered.slice(0, maxResults);
   }
 
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
 }

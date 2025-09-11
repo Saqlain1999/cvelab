@@ -68,16 +68,27 @@ export class GitHubService {
     const queries = this.buildSearchQueries(cveId);
     const allResults: any[] = [];
 
+    // Check API key availability and warn user
+    if (!this.API_KEY) {
+      console.warn('GitHub API key not configured. Rate limits will be very restrictive (60 requests/hour).');
+      console.warn('To improve PoC discovery, set GITHUB_API_KEY or GITHUB_TOKEN environment variable.');
+    }
+
     for (const query of queries) {
       try {
         if (await this.isRateLimited()) {
-          console.warn('GitHub API rate limited, skipping remaining queries');
+          console.warn(`GitHub API rate limited, skipping remaining ${queries.length - queries.indexOf(query)} queries`);
+          console.warn('Set GITHUB_API_KEY environment variable to get 5000 requests/hour instead of 60.');
           break;
         }
 
         const results = await this.searchRepositories(query);
         const pocResults = results.filter(repo => this.isPocRepository(repo, cveId));
         allResults.push(...pocResults);
+        
+        if (pocResults.length > 0) {
+          console.log(`GitHub: Found ${pocResults.length} PoC repositories for query "${query}"`);
+        }
       } catch (error) {
         console.error(`Error searching GitHub for ${query}:`, error);
       }
