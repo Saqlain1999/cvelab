@@ -4,8 +4,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Dashboard from "@/pages/dashboard";
-import CveSearch from "@/pages/cve-search";
-import Configuration from "@/pages/configuration";
+import CveSearch from "@/pages/cve-search.tsx";
+import Configuration from "@/pages/configuration.tsx";
 import NotFound from "@/pages/not-found";
 
 function Router() {

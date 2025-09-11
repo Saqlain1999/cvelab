@@ -39,16 +39,6 @@ export function Navigation() {
           </Link>
         ))}
         
-        <div className="pt-4 space-y-2">
-          <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" data-testid="button-export">
-            <Download className="w-4 h-4" />
-            Export Data
-          </button>
-          <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" data-testid="button-lab-deploy">
-            <Server className="w-4 h-4" />
-            Lab Deploy
-          </button>
-        </div>
       </nav>
       
       {/* Footer */}
