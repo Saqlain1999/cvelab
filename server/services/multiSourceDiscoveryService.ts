@@ -1,7 +1,7 @@
 import { GitHubService } from './githubService';
 
 export interface PocSource {
-  type: 'github' | 'medium' | 'dockerhub' | 'youtube' | 'exploitdb' | 'security_blog';
+  type: 'github' | 'gitlab' | 'dockerhub' | 'exploitdb' | 'security_blog' | 'sec_rss';
   title: string;
   url: string;
   description: string;
@@ -30,15 +30,176 @@ export interface DockerDeploymentInfo {
 
 export class MultiSourceDiscoveryService {
   private githubService: GitHubService;
-  private rapidApiKey: string;
-  private youtubeApiKey: string;
   private cacheTimeout = 1000 * 60 * 30; // 30 minutes
   private cache = new Map<string, { data: any; timestamp: number }>();
+  
+  // Production reliability configuration
+  private readonly CONFIG = {
+    maxRetries: 3,
+    baseDelay: 1000, // 1 second
+    maxDelay: 10000, // 10 seconds
+    timeout: 15000, // 15 seconds
+    userAgent: 'CVE-Lab-Hunter/2.0 (+https://github.com/cve-lab-hunter)',
+    circuitBreakerThreshold: 5, // failures before circuit opens
+    circuitBreakerResetTime: 60000 // 1 minute
+  };
+  
+  // Circuit breaker state for each service
+  private circuitBreakers = new Map<string, {
+    failures: number;
+    lastFailure: number;
+    isOpen: boolean;
+  }>();
 
   constructor() {
     this.githubService = new GitHubService();
-    this.rapidApiKey = process.env.RAPIDAPI_KEY || '';
-    this.youtubeApiKey = process.env.YOUTUBE_API_KEY || process.env.GOOGLE_API_KEY || '';
+  }
+
+  /**
+   * Production-ready HTTP request with retry logic, timeout, and circuit breaker
+   */
+  private async makeReliableRequest(
+    url: string, 
+    options: RequestInit = {}, 
+    serviceName: string
+  ): Promise<Response | null> {
+    // Check circuit breaker
+    if (this.isCircuitOpen(serviceName)) {
+      console.warn(`Circuit breaker open for ${serviceName}, skipping request`);
+      return null;
+    }
+
+    const requestOptions: RequestInit = {
+      ...options,
+      headers: {
+        'User-Agent': this.CONFIG.userAgent,
+        ...options.headers
+      },
+      signal: AbortSignal.timeout(this.CONFIG.timeout)
+    };
+
+    for (let attempt = 0; attempt <= this.CONFIG.maxRetries; attempt++) {
+      try {
+        console.debug(`${serviceName} request attempt ${attempt + 1}/${this.CONFIG.maxRetries + 1}: ${url}`);
+        
+        const response = await fetch(url, requestOptions);
+        
+        if (response.ok) {
+          // Reset circuit breaker on success
+          this.resetCircuitBreaker(serviceName);
+          return response;
+        } else if (response.status === 429) {
+          // Rate limiting - wait longer
+          const retryAfter = response.headers.get('retry-after');
+          const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : this.calculateBackoffDelay(attempt);
+          console.warn(`${serviceName} rate limited, waiting ${waitTime}ms`);
+          await this.delay(waitTime);
+          continue;
+        } else if (response.status >= 500) {
+          // Server error - retry with backoff
+          throw new Error(`Server error: ${response.status} ${response.statusText}`);
+        } else {
+          // Client error - don't retry
+          console.warn(`${serviceName} client error: ${response.status} ${response.statusText}`);
+          return response;
+        }
+      } catch (error) {
+        const isLastAttempt = attempt === this.CONFIG.maxRetries;
+        
+        if (error instanceof Error && error.name === 'TimeoutError') {
+          console.warn(`${serviceName} request timeout on attempt ${attempt + 1}`);
+        } else if (error instanceof Error && error.name === 'AbortError') {
+          console.warn(`${serviceName} request aborted on attempt ${attempt + 1}`);
+        } else {
+          console.warn(`${serviceName} request failed on attempt ${attempt + 1}:`, error);
+        }
+
+        if (isLastAttempt) {
+          // Record failure for circuit breaker
+          this.recordFailure(serviceName);
+          console.error(`${serviceName} failed after ${this.CONFIG.maxRetries + 1} attempts`);
+          return null;
+        }
+
+        // Wait before retry with exponential backoff
+        const delayMs = this.calculateBackoffDelay(attempt);
+        console.debug(`${serviceName} retrying in ${delayMs}ms...`);
+        await this.delay(delayMs);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Calculate exponential backoff delay with jitter
+   */
+  private calculateBackoffDelay(attempt: number): number {
+    const exponentialDelay = this.CONFIG.baseDelay * Math.pow(2, attempt);
+    const cappedDelay = Math.min(exponentialDelay, this.CONFIG.maxDelay);
+    // Add jitter (±25%) to prevent thundering herd
+    const jitter = cappedDelay * 0.25 * (Math.random() - 0.5);
+    return Math.round(cappedDelay + jitter);
+  }
+
+  /**
+   * Simple delay utility
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Check if circuit breaker is open for a service
+   */
+  private isCircuitOpen(serviceName: string): boolean {
+    const breaker = this.circuitBreakers.get(serviceName);
+    if (!breaker) return false;
+
+    if (breaker.isOpen) {
+      const timeSinceLastFailure = Date.now() - breaker.lastFailure;
+      if (timeSinceLastFailure > this.CONFIG.circuitBreakerResetTime) {
+        // Reset circuit breaker
+        this.resetCircuitBreaker(serviceName);
+        return false;
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Record a failure for circuit breaker
+   */
+  private recordFailure(serviceName: string): void {
+    const breaker = this.circuitBreakers.get(serviceName) || {
+      failures: 0,
+      lastFailure: 0,
+      isOpen: false
+    };
+
+    breaker.failures++;
+    breaker.lastFailure = Date.now();
+
+    if (breaker.failures >= this.CONFIG.circuitBreakerThreshold) {
+      breaker.isOpen = true;
+      console.warn(`Circuit breaker opened for ${serviceName} after ${breaker.failures} failures`);
+    }
+
+    this.circuitBreakers.set(serviceName, breaker);
+  }
+
+  /**
+   * Reset circuit breaker on successful request
+   */
+  private resetCircuitBreaker(serviceName: string): void {
+    const breaker = this.circuitBreakers.get(serviceName);
+    if (breaker) {
+      breaker.failures = 0;
+      breaker.isOpen = false;
+      this.circuitBreakers.set(serviceName, breaker);
+    }
   }
 
   async discoverAllSources(cveId: string, options: SourceSearchOptions = { query: cveId }): Promise<{
@@ -51,14 +212,14 @@ export class MultiSourceDiscoveryService {
     const dockerInfo: DockerDeploymentInfo[] = [];
     const sourceBreakdown: Record<string, number> = {};
 
-    // Search all sources in parallel for efficiency
+    // Search all sources in parallel for efficiency - FREE SOURCES ONLY
     const searchTasks = [
       this.searchGitHub(cveId, options),
-      this.searchMedium(cveId, options),
+      this.searchGitLab(cveId, options),
       this.searchDockerHub(cveId, options),
-      this.searchYouTube(cveId, options),
       this.searchExploitDB(cveId, options),
-      this.searchSecurityBlogs(cveId, options)
+      this.searchSecurityBlogs(cveId, options),
+      this.searchSecurityRSSFeeds(cveId, options)
     ];
 
     const results = await Promise.allSettled(searchTasks);
@@ -68,7 +229,7 @@ export class MultiSourceDiscoveryService {
       const result = results[i];
       if (result.status === 'fulfilled' && result.value.length > 0) {
         allSources.push(...result.value);
-        const sourceType = ['github', 'medium', 'dockerhub', 'youtube', 'exploitdb', 'security_blog'][i];
+        const sourceType = ['github', 'gitlab', 'dockerhub', 'exploitdb', 'security_blog', 'sec_rss'][i];
         sourceBreakdown[sourceType] = result.value.length;
       }
     }
@@ -124,120 +285,70 @@ export class MultiSourceDiscoveryService {
     }
   }
 
-  private async searchMedium(cveId: string, options: SourceSearchOptions): Promise<PocSource[]> {
-    if (!this.rapidApiKey) {
-      console.warn('RapidAPI key not found, skipping Medium search');
-      return [];
-    }
-
-    const cacheKey = `medium:${options.query}`;
+  // GitLab search - completely free alternative to paid APIs
+  private async searchGitLab(cveId: string, options: SourceSearchOptions): Promise<PocSource[]> {
+    const cacheKey = `gitlab:${options.query}`;
     const cached = this.getCached(cacheKey);
     if (cached) return cached;
 
     try {
-      // Search Medium articles using unofficial API
       const searchQueries = [
         options.query,
-        `${options.query} vulnerability`,
+        `${options.query} poc`,
         `${options.query} exploit`,
-        `${options.query} proof of concept`
+        `${options.query} vulnerability`,
+        `${options.query} proof concept`
       ];
 
-      const allArticles: PocSource[] = [];
+      const allRepos: PocSource[] = [];
 
       for (const query of searchQueries) {
         try {
-          // Search by cybersecurity tag with CVE content
-          const response = await fetch(
-            `https://medium-api.p.rapidapi.com/tag/cybersecurity/articles?mode=hot&count=25`,
-            {
-              headers: {
-                'X-RapidAPI-Key': this.rapidApiKey,
-                'X-RapidAPI-Host': 'medium-api.p.rapidapi.com'
-              }
-            }
-          );
+          const url = `https://gitlab.com/api/v4/projects?search=${encodeURIComponent(query)}&order_by=star_count&sort=desc&per_page=20`;
+          const response = await this.makeReliableRequest(url, {}, 'GitLab');
 
-          if (response.ok) {
-            const data = await response.json();
-            const relevantArticles = data.articles
-              ?.filter((article: any) => 
-                article.title?.toLowerCase().includes(options.query.toLowerCase()) ||
-                article.subtitle?.toLowerCase().includes(options.query.toLowerCase())
+          if (response?.ok) {
+            const projects = await response.json();
+            const relevantRepos = projects
+              ?.filter((project: any) => 
+                project.name?.toLowerCase().includes(options.query.toLowerCase()) ||
+                project.description?.toLowerCase().includes(options.query.toLowerCase()) ||
+                project.name?.toLowerCase().includes('cve') ||
+                project.name?.toLowerCase().includes('poc') ||
+                project.name?.toLowerCase().includes('exploit')
               )
-              .map((article: any) => ({
-                type: 'medium' as const,
-                title: article.title,
-                url: article.url,
-                description: article.subtitle || article.title,
-                author: article.author?.name,
-                publishedDate: new Date(article.published_at),
-                relevanceScore: this.calculateMediumRelevance(article, options.query),
-                tags: ['medium', 'article', 'analysis'],
+              .map((project: any) => ({
+                type: 'gitlab' as const,
+                title: project.name,
+                url: project.web_url,
+                description: project.description || 'GitLab repository',
+                author: project.namespace?.name,
+                publishedDate: new Date(project.created_at),
+                relevanceScore: this.calculateGitLabRelevance(project, options.query),
+                tags: ['gitlab', 'repository', 'poc'],
                 metadata: {
-                  claps: article.clap_count,
-                  readingTime: article.reading_time,
-                  publication: article.publication?.name
+                  stars: project.star_count,
+                  forks: project.forks_count,
+                  lastActivity: project.last_activity_at,
+                  visibility: project.visibility
                 }
               })) || [];
 
-            allArticles.push(...relevantArticles);
+            allRepos.push(...relevantRepos);
+          } else if (response) {
+            console.warn(`GitLab API returned ${response.status} for query "${query}"`);
           }
         } catch (error) {
-          console.warn(`Medium search failed for query "${query}":`, error);
+          console.warn(`GitLab search failed for query "${query}":`, error);
         }
       }
 
-      // Also search security-focused tags
-      const securityTags = ['vulnerability', 'cybersecurity', 'infosec', 'hacking'];
-      for (const tag of securityTags) {
-        try {
-          const response = await fetch(
-            `https://medium-api.p.rapidapi.com/tag/${tag}/articles?mode=new&count=10`,
-            {
-              headers: {
-                'X-RapidAPI-Key': this.rapidApiKey,
-                'X-RapidAPI-Host': 'medium-api.p.rapidapi.com'
-              }
-            }
-          );
-
-          if (response.ok) {
-            const data = await response.json();
-            const relevantArticles = data.articles
-              ?.filter((article: any) => 
-                article.title?.toLowerCase().includes(options.query.toLowerCase()) ||
-                article.subtitle?.toLowerCase().includes(options.query.toLowerCase())
-              )
-              .map((article: any) => ({
-                type: 'medium' as const,
-                title: article.title,
-                url: article.url,
-                description: article.subtitle || article.title,
-                author: article.author?.name,
-                publishedDate: new Date(article.published_at),
-                relevanceScore: this.calculateMediumRelevance(article, options.query),
-                tags: ['medium', 'article', tag],
-                metadata: {
-                  claps: article.clap_count,
-                  readingTime: article.reading_time,
-                  publication: article.publication?.name
-                }
-              })) || [];
-
-            allArticles.push(...relevantArticles);
-          }
-        } catch (error) {
-          // Continue with other tags
-        }
-      }
-
-      const uniqueArticles = this.deduplicateSources(allArticles);
-      this.setCached(cacheKey, uniqueArticles);
-      return uniqueArticles;
+      const uniqueRepos = this.deduplicateSources(allRepos);
+      this.setCached(cacheKey, uniqueRepos);
+      return uniqueRepos;
 
     } catch (error) {
-      console.error('Medium search failed:', error);
+      console.error('GitLab search failed:', error);
       return [];
     }
   }
@@ -260,11 +371,10 @@ export class MultiSourceDiscoveryService {
 
       for (const query of searchQueries) {
         try {
-          const response = await fetch(
-            `https://hub.docker.com/v2/search/repositories/?query=${encodeURIComponent(query)}&page_size=25`
-          );
+          const url = `https://hub.docker.com/v2/search/repositories/?query=${encodeURIComponent(query)}&page_size=25`;
+          const response = await this.makeReliableRequest(url, {}, 'DockerHub');
 
-          if (response.ok) {
+          if (response?.ok) {
             const data = await response.json();
             const relevantContainers = data.results
               ?.filter((repo: any) => 
@@ -289,6 +399,8 @@ export class MultiSourceDiscoveryService {
               })) || [];
 
             allContainers.push(...relevantContainers);
+          } else if (response) {
+            console.warn(`DockerHub API returned ${response.status} for query "${query}"`);
           }
         } catch (error) {
           console.warn(`DockerHub search failed for query "${query}":`, error);
@@ -305,70 +417,64 @@ export class MultiSourceDiscoveryService {
     }
   }
 
-  private async searchYouTube(cveId: string, options: SourceSearchOptions): Promise<PocSource[]> {
-    if (!this.youtubeApiKey) {
-      console.warn('YouTube API key not found, skipping YouTube search');
-      return [];
-    }
-
-    const cacheKey = `youtube:${cveId}`;
+  // Enhanced free security RSS feeds search
+  private async searchSecurityRSSFeeds(cveId: string, options: SourceSearchOptions): Promise<PocSource[]> {
+    const cacheKey = `sec_rss:${options.query}`;
     const cached = this.getCached(cacheKey);
     if (cached) return cached;
 
     try {
-      // Search YouTube for vulnerability demonstrations and tutorials
-      const searchQueries = [
-        `${cveId} demonstration`,
-        `${cveId} tutorial`,
-        `${cveId} exploit walkthrough`,
-        `${cveId} vulnerability explained`,
-        `${cveId} proof of concept`
+      // Comprehensive list of free security RSS feeds
+      const securityFeeds = [
+        { name: 'Packet Storm Security', url: 'https://rss.packetstormsecurity.com/news/' },
+        { name: 'The Hacker News', url: 'https://feeds.feedburner.com/TheHackersNews' },
+        { name: 'SANS ISC', url: 'https://isc.sans.edu/rssfeed.xml' },
+        { name: 'Krebs on Security', url: 'https://krebsonsecurity.com/feed/' },
+        { name: 'Schneier on Security', url: 'https://www.schneier.com/feed/' },
+        { name: 'Threatpost', url: 'https://threatpost.com/feed/' },
+        { name: 'Dark Reading', url: 'https://www.darkreading.com/rss_simple.asp' },
+        { name: 'Security Week', url: 'https://www.securityweek.com/feed/' },
+        { name: 'BleepingComputer', url: 'https://www.bleepingcomputer.com/feed/' },
+        { name: 'Vulnerability Lab', url: 'https://www.vulnerability-lab.com/rss.php' }
       ];
 
-      const allVideos: PocSource[] = [];
+      const allBlogPosts: PocSource[] = [];
 
-      for (const query of searchQueries) {
+      for (const feed of securityFeeds) {
         try {
-          const response = await fetch(
-            `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=10&key=${this.youtubeApiKey}`
-          );
-
-          if (response.ok) {
-            const data = await response.json();
-            const relevantVideos = data.items
-              ?.filter((video: any) => 
-                video.snippet.title?.toLowerCase().includes(cveId.toLowerCase()) ||
-                video.snippet.description?.toLowerCase().includes(cveId.toLowerCase())
-              )
-              .map((video: any) => ({
-                type: 'youtube' as const,
-                title: video.snippet.title,
-                url: `https://www.youtube.com/watch?v=${video.id.videoId}`,
-                description: video.snippet.description,
-                author: video.snippet.channelTitle,
-                publishedDate: new Date(video.snippet.publishedAt),
-                relevanceScore: this.calculateYouTubeRelevance(video, cveId),
-                tags: ['youtube', 'video', 'tutorial'],
-                metadata: {
-                  channelId: video.snippet.channelId,
-                  thumbnails: video.snippet.thumbnails,
-                  videoId: video.id.videoId
-                }
-              })) || [];
-
-            allVideos.push(...relevantVideos);
+          const response = await this.makeReliableRequest(feed.url, {}, `RSS-${feed.name}`);
+          
+          if (response?.ok) {
+            const rssText = await response.text();
+            const posts = this.parseRSSForCVE(rssText, options.query, feed.name);
+            allBlogPosts.push(...posts);
+          } else if (response) {
+            console.warn(`RSS feed ${feed.name} returned ${response.status}`);
           }
         } catch (error) {
-          console.warn(`YouTube search failed for query "${query}":`, error);
+          console.warn(`Failed to fetch ${feed.name} RSS:`, error);
         }
       }
 
-      const uniqueVideos = this.deduplicateSources(allVideos);
-      this.setCached(cacheKey, uniqueVideos);
-      return uniqueVideos;
+      // Also search exploit-db RSS feed specifically
+      try {
+        const exploitDbRss = await fetch('https://www.exploit-db.com/rss.xml', {
+          headers: { 'User-Agent': 'CVE-Lab-Hunter/1.0' }
+        });
+        if (exploitDbRss.ok) {
+          const rssText = await exploitDbRss.text();
+          const exploits = this.parseRSSForCVE(rssText, options.query, 'Exploit-DB RSS');
+          allBlogPosts.push(...exploits);
+        }
+      } catch (error) {
+        console.warn('Failed to fetch Exploit-DB RSS:', error);
+      }
+
+      this.setCached(cacheKey, allBlogPosts);
+      return allBlogPosts;
 
     } catch (error) {
-      console.error('YouTube search failed:', error);
+      console.error('Security RSS feeds search failed:', error);
       return [];
     }
   }
@@ -607,6 +713,53 @@ export class MultiSourceDiscoveryService {
     if (exploit.verified) score += 5;
     if (exploit.platform?.toLowerCase().includes('linux') || 
         exploit.platform?.toLowerCase().includes('windows')) score += 2;
+
+    return score;
+  }
+
+  private calculateGitLabRelevance(project: any, cveId: string): number {
+    let score = 0;
+    const name = project.name?.toLowerCase() || '';
+    const description = project.description?.toLowerCase() || '';
+    const cveIdLower = cveId.toLowerCase();
+
+    if (name.includes(cveIdLower)) score += 10;
+    if (description.includes(cveIdLower)) score += 5;
+    if (name.includes('poc') || name.includes('exploit')) score += 8;
+    if (description.includes('poc') || description.includes('exploit')) score += 4;
+    score += Math.log10((project.star_count || 0) + 1);
+    
+    const lastActivity = new Date(project.last_activity_at);
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    if (lastActivity > oneYearAgo) score += 2;
+
+    // Boost for public repositories
+    if (project.visibility === 'public') score += 1;
+
+    return score;
+  }
+
+  private calculateSecurityBlogRelevance(post: any, cveId: string): number {
+    let score = 0;
+    const title = post.title?.toLowerCase() || '';
+    const description = post.description?.toLowerCase() || '';
+    const cveIdLower = cveId.toLowerCase();
+
+    if (title.includes(cveIdLower)) score += 10;
+    if (description.includes(cveIdLower)) score += 5;
+    
+    // Boost for analysis/poc keywords
+    if (title.includes('analysis') || title.includes('poc') || title.includes('exploit')) score += 3;
+    if (description.includes('analysis') || description.includes('poc') || description.includes('exploit')) score += 2;
+    
+    // Boost for recent posts
+    if (post.publishedDate) {
+      const postDate = new Date(post.publishedDate);
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      if (postDate > thirtyDaysAgo) score += 3;
+    }
 
     return score;
   }

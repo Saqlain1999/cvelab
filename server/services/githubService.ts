@@ -44,6 +44,24 @@ export class GitHubService {
   private readonly BASE_URL = 'https://api.github.com';
   private readonly API_KEY = process.env.GITHUB_API_KEY || process.env.GITHUB_TOKEN || '';
   private lastRateLimit: GitHubRateLimit | null = null;
+  
+  // Production reliability configuration
+  private readonly CONFIG = {
+    maxRetries: 3,
+    baseDelay: 1000, // 1 second
+    maxDelay: 30000, // 30 seconds for GitHub (longer due to rate limits)
+    timeout: 20000, // 20 seconds
+    userAgent: 'CVE-Lab-Hunter/2.0 (+https://github.com/cve-lab-hunter)',
+    circuitBreakerThreshold: 5,
+    circuitBreakerResetTime: 300000 // 5 minutes for GitHub
+  };
+  
+  // Circuit breaker state
+  private circuitBreaker = {
+    failures: 0,
+    lastFailure: 0,
+    isOpen: false
+  };
 
   async searchPoCs(cveId: string, options?: SourceSearchOptions): Promise<SearchResult[]> {
     const maxResults = options?.maxResults || 10;
@@ -88,6 +106,12 @@ export class GitHubService {
   }
 
   private async searchRepositories(query: string): Promise<any[]> {
+    // Check circuit breaker
+    if (this.isCircuitOpen()) {
+      console.warn('GitHub circuit breaker open, skipping request');
+      return [];
+    }
+
     const params = new URLSearchParams({
       q: query,
       sort: 'updated',
@@ -97,7 +121,7 @@ export class GitHubService {
 
     const headers: Record<string, string> = {
       'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'CVE-Lab-Hunter/1.0',
+      'User-Agent': this.CONFIG.userAgent,
       'X-GitHub-Api-Version': '2022-11-28'
     };
 
@@ -105,37 +129,143 @@ export class GitHubService {
       headers['Authorization'] = `token ${this.API_KEY}`;
     }
 
-    try {
-      const response = await fetch(`${this.BASE_URL}/search/repositories?${params}`, {
-        headers
-      });
+    const url = `${this.BASE_URL}/search/repositories?${params}`;
+    
+    for (let attempt = 0; attempt <= this.CONFIG.maxRetries; attempt++) {
+      try {
+        console.debug(`GitHub request attempt ${attempt + 1}/${this.CONFIG.maxRetries + 1}: ${query}`);
+        
+        const response = await fetch(url, {
+          headers,
+          signal: AbortSignal.timeout(this.CONFIG.timeout)
+        });
 
-      // Update rate limit info
-      const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
-      const rateLimitReset = response.headers.get('X-RateLimit-Reset');
-      if (rateLimitRemaining && rateLimitReset) {
-        this.lastRateLimit = {
-          remaining: parseInt(rateLimitRemaining),
-          reset: parseInt(rateLimitReset),
-          used: 0,
-          limit: parseInt(response.headers.get('X-RateLimit-Limit') || '60')
-        };
-      }
+        // Update rate limit info
+        const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
+        const rateLimitReset = response.headers.get('X-RateLimit-Reset');
+        if (rateLimitRemaining && rateLimitReset) {
+          this.lastRateLimit = {
+            remaining: parseInt(rateLimitRemaining),
+            reset: parseInt(rateLimitReset),
+            used: 0,
+            limit: parseInt(response.headers.get('X-RateLimit-Limit') || '60')
+          };
+        }
 
-      if (!response.ok) {
-        if (response.status === 403) {
+        if (response.ok) {
+          // Reset circuit breaker on success
+          this.resetCircuitBreaker();
+          const data: GitHubSearchResponse = await response.json();
+          return data.items || [];
+        } else if (response.status === 403) {
+          // Rate limiting or abuse detection
+          const retryAfter = response.headers.get('retry-after');
+          const resetTime = this.lastRateLimit?.reset;
+          
+          if (resetTime) {
+            const waitTime = (resetTime * 1000) - Date.now();
+            if (waitTime > 0 && waitTime < 3600000) { // Max 1 hour wait
+              console.warn(`GitHub rate limited, waiting ${Math.round(waitTime / 1000)}s until reset`);
+              await this.delay(waitTime);
+              continue;
+            }
+          } else if (retryAfter) {
+            const waitTime = parseInt(retryAfter) * 1000;
+            console.warn(`GitHub rate limited, waiting ${waitTime}ms`);
+            await this.delay(waitTime);
+            continue;
+          }
+          
           console.warn('GitHub API rate limit exceeded');
           return [];
+        } else if (response.status >= 500) {
+          // Server error - retry with backoff
+          throw new Error(`GitHub server error: ${response.status} ${response.statusText}`);
+        } else {
+          // Client error - don't retry
+          console.warn(`GitHub API client error: ${response.status} ${response.statusText}`);
+          return [];
         }
-        throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
-      }
+      } catch (error) {
+        const isLastAttempt = attempt === this.CONFIG.maxRetries;
+        
+        if (error instanceof Error && error.name === 'TimeoutError') {
+          console.warn(`GitHub request timeout on attempt ${attempt + 1}`);
+        } else if (error instanceof Error && error.name === 'AbortError') {
+          console.warn(`GitHub request aborted on attempt ${attempt + 1}`);
+        } else {
+          console.warn(`GitHub request failed on attempt ${attempt + 1}:`, error);
+        }
 
-      const data: GitHubSearchResponse = await response.json();
-      return data.items || [];
-    } catch (error) {
-      console.error('Error searching GitHub repositories:', error);
-      return [];
+        if (isLastAttempt) {
+          this.recordFailure();
+          console.error(`GitHub failed after ${this.CONFIG.maxRetries + 1} attempts`);
+          return [];
+        }
+
+        // Wait before retry with exponential backoff
+        const delayMs = this.calculateBackoffDelay(attempt);
+        console.debug(`GitHub retrying in ${delayMs}ms...`);
+        await this.delay(delayMs);
+      }
     }
+
+    return [];
+  }
+
+  /**
+   * Calculate exponential backoff delay with jitter
+   */
+  private calculateBackoffDelay(attempt: number): number {
+    const exponentialDelay = this.CONFIG.baseDelay * Math.pow(2, attempt);
+    const cappedDelay = Math.min(exponentialDelay, this.CONFIG.maxDelay);
+    // Add jitter (±25%) to prevent thundering herd
+    const jitter = cappedDelay * 0.25 * (Math.random() - 0.5);
+    return Math.round(cappedDelay + jitter);
+  }
+
+  /**
+   * Simple delay utility
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Check if circuit breaker is open
+   */
+  private isCircuitOpen(): boolean {
+    if (this.circuitBreaker.isOpen) {
+      const timeSinceLastFailure = Date.now() - this.circuitBreaker.lastFailure;
+      if (timeSinceLastFailure > this.CONFIG.circuitBreakerResetTime) {
+        // Reset circuit breaker
+        this.resetCircuitBreaker();
+        return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Record a failure for circuit breaker
+   */
+  private recordFailure(): void {
+    this.circuitBreaker.failures++;
+    this.circuitBreaker.lastFailure = Date.now();
+
+    if (this.circuitBreaker.failures >= this.CONFIG.circuitBreakerThreshold) {
+      this.circuitBreaker.isOpen = true;
+      console.warn(`GitHub circuit breaker opened after ${this.circuitBreaker.failures} failures`);
+    }
+  }
+
+  /**
+   * Reset circuit breaker on successful request
+   */
+  private resetCircuitBreaker(): void {
+    this.circuitBreaker.failures = 0;
+    this.circuitBreaker.isOpen = false;
   }
 
   private isPocRepository(repo: any, cveId: string): boolean {

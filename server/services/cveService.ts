@@ -34,10 +34,84 @@ interface NistCveResponse {
   totalResults: number;
 }
 
+interface CveTargetingOptions {
+  timeframeYears?: number;
+  severities?: ('LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL')[];
+  attackVector?: ('NETWORK' | 'ADJACENT_NETWORK' | 'LOCAL' | 'PHYSICAL')[];
+  attackComplexity?: ('LOW' | 'HIGH')[];
+  userInteraction?: ('NONE' | 'REQUIRED')[];
+  keywords?: string[];
+  cpeNames?: string[];
+  excludeAuthenticated?: boolean;
+  onlyLabSuitable?: boolean;
+  targetedCweIds?: string[];
+}
+
 export class CveService {
   private readonly BASE_URL = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
   
-  async fetchCvesFromNist(timeframeYears: number = 3): Promise<any[]> {
+  // Lab-suitable technologies and their CPE patterns
+  private readonly LAB_SUITABLE_CPE_PATTERNS = [
+    // Web Servers
+    'cpe:2.3:a:apache:http_server',
+    'cpe:2.3:a:nginx:nginx',
+    'cpe:2.3:a:microsoft:internet_information_services',
+    'cpe:2.3:a:apache:tomcat',
+    
+    // CMS Systems
+    'cpe:2.3:a:wordpress:wordpress',
+    'cpe:2.3:a:joomla:joomla\!',
+    'cpe:2.3:a:drupal:drupal',
+    'cpe:2.3:a:magento:magento',
+    
+    // Databases
+    'cpe:2.3:a:mysql:mysql',
+    'cpe:2.3:a:postgresql:postgresql',
+    'cpe:2.3:a:mongodb:mongodb',
+    'cpe:2.3:a:redis:redis',
+    
+    // Network Services
+    'cpe:2.3:a:openbsd:openssh',
+    'cpe:2.3:a:proftpd:proftpd',
+    'cpe:2.3:a:isc:bind',
+    'cpe:2.3:a:squid-cache:squid',
+    
+    // Web Frameworks
+    'cpe:2.3:a:laravel:laravel',
+    'cpe:2.3:a:nodejs:node.js',
+    'cpe:2.3:a:django:django'
+  ];
+  
+  // CWE IDs for remote exploitation vulnerabilities
+  private readonly TARGET_CWE_IDS = [
+    'CWE-79',   // Cross-site Scripting (XSS)
+    'CWE-89',   // SQL Injection
+    'CWE-78',   // OS Command Injection
+    'CWE-94',   // Code Injection
+    'CWE-502',  // Deserialization of Untrusted Data
+    'CWE-22',   // Path Traversal
+    'CWE-918',  // Server-Side Request Forgery (SSRF)
+    'CWE-1336', // Template Injection
+    'CWE-611',  // XML External Entity (XXE)
+    'CWE-352',  // Cross-Site Request Forgery (CSRF)
+    'CWE-434',  // Unrestricted Upload of File with Dangerous Type
+    'CWE-287',  // Improper Authentication
+    'CWE-269'   // Improper Privilege Management
+  ];
+  
+  async fetchCvesFromNist(options: CveTargetingOptions = {}): Promise<any[]> {
+    const {
+      timeframeYears = 3,
+      severities = ['HIGH', 'CRITICAL'],
+      attackVector = ['NETWORK'],
+      attackComplexity = ['LOW'],
+      userInteraction = ['NONE'],
+      keywords = [],
+      cpeNames = [],
+      excludeAuthenticated = true,
+      onlyLabSuitable = true,
+      targetedCweIds = this.TARGET_CWE_IDS
+    } = options;
     const startDate = new Date();
     startDate.setFullYear(startDate.getFullYear() - timeframeYears);
     startDate.setHours(0, 0, 0, 0);
@@ -45,11 +119,53 @@ export class CveService {
     const endDate = new Date();
     endDate.setHours(23, 59, 59, 999);
     
+    // Build targeted search parameters
     const params = new URLSearchParams({
       pubStartDate: startDate.toISOString(),
       pubEndDate: endDate.toISOString(),
       resultsPerPage: '2000'
     });
+    
+    // Add CVSS severity filtering
+    if (severities.length > 0) {
+      params.append('cvssV3Severity', severities.join(','));
+    }
+    
+    // Add attack vector filtering
+    if (attackVector.length > 0) {
+      const vectorCodes = attackVector.map(v => {
+        switch (v) {
+          case 'NETWORK': return 'N';
+          case 'ADJACENT_NETWORK': return 'A';
+          case 'LOCAL': return 'L';
+          case 'PHYSICAL': return 'P';
+          default: return 'N';
+        }
+      }).join(',');
+      params.append('cvssV3Vector', `AV:${vectorCodes}`);
+    }
+    
+    // Add CPE name filtering for lab-suitable technologies
+    const targetCpeNames = cpeNames.length > 0 ? cpeNames : this.LAB_SUITABLE_CPE_PATTERNS;
+    if (targetCpeNames.length > 0) {
+      // NVD API supports CPE name matching
+      params.append('cpeName', targetCpeNames.slice(0, 5).join(' OR '));
+    }
+    
+    // Add keyword filtering for lab-suitable vulnerabilities
+    const labKeywords = keywords.length > 0 ? keywords : [
+      'remote code execution', 'sql injection', 'cross-site scripting', 
+      'path traversal', 'deserialization', 'template injection',
+      'server-side request forgery', 'xml external entity'
+    ];
+    if (labKeywords.length > 0) {
+      params.append('keywordSearch', labKeywords.slice(0, 3).join(' OR '));
+    }
+    
+    // Add CWE ID filtering
+    if (targetedCweIds.length > 0) {
+      params.append('cweId', targetedCweIds.slice(0, 5).join(','));
+    }
 
     try {
       const response = await fetch(`${this.BASE_URL}?${params}`, {
@@ -64,7 +180,20 @@ export class CveService {
       }
 
       const data: NistCveResponse = await response.json();
-      return this.transformNistData(data.vulnerabilities);
+      let vulnerabilities = this.transformNistData(data.vulnerabilities);
+      
+      // Apply additional client-side filtering for lab suitability
+      if (onlyLabSuitable) {
+        vulnerabilities = this.filterForLabSuitability(vulnerabilities, {
+          excludeAuthenticated,
+          attackVector,
+          attackComplexity,
+          userInteraction
+        });
+      }
+      
+      console.log(`Filtered to ${vulnerabilities.length} lab-suitable CVEs from ${data.totalResults} total`);
+      return vulnerabilities;
     } catch (error) {
       console.error('Error fetching CVEs from NIST:', error);
       throw error;
@@ -133,23 +262,56 @@ export class CveService {
   private categorizeVulnerability(cve: any): string {
     const description = cve.descriptions.find((d: any) => d.lang === 'en')?.value.toLowerCase() || '';
     
-    if (description.includes('wordpress') || description.includes('drupal') || description.includes('joomla')) {
+    // Enhanced categorization with lab suitability in mind
+    
+    // CMS Systems (highly lab-suitable)
+    if (description.includes('wordpress') || description.includes('drupal') || description.includes('joomla') ||
+        description.includes('magento') || description.includes('phpbb') || description.includes('mediawiki')) {
       return 'CMS';
     }
-    if (description.includes('apache') || description.includes('nginx') || description.includes('iis')) {
+    
+    // Web Servers (very lab-suitable)
+    if (description.includes('apache') || description.includes('nginx') || description.includes('iis') ||
+        description.includes('tomcat') || description.includes('jetty') || description.includes('lighttpd')) {
       return 'Web Server';
     }
-    if (description.includes('ssh') || description.includes('ftp') || description.includes('smtp')) {
+    
+    // Network Services (good for network-based labs)
+    if (description.includes('ssh') || description.includes('ftp') || description.includes('smtp') ||
+        description.includes('dns') || description.includes('bind') || description.includes('postfix') ||
+        description.includes('sendmail') || description.includes('exim') || description.includes('dovecot')) {
       return 'Network Service';
     }
-    if (description.includes('mysql') || description.includes('postgresql') || description.includes('mongodb')) {
+    
+    // Databases (good for injection-based labs)
+    if (description.includes('mysql') || description.includes('postgresql') || description.includes('mongodb') ||
+        description.includes('redis') || description.includes('mariadb') || description.includes('sqlite')) {
       return 'Database';
     }
-    if (description.includes('docker') || description.includes('kubernetes')) {
+    
+    // Container & DevOps (modern lab environments)
+    if (description.includes('docker') || description.includes('kubernetes') || description.includes('jenkins') ||
+        description.includes('gitlab') || description.includes('nexus') || description.includes('artifactory')) {
       return 'Container';
     }
-    if (description.includes('firewall') || description.includes('proxy') || description.includes('gateway')) {
+    
+    // Network Security (proxy, firewall, gateway)
+    if (description.includes('firewall') || description.includes('proxy') || description.includes('gateway') ||
+        description.includes('squid') || description.includes('haproxy') || description.includes('pfsense')) {
       return 'Network Security';
+    }
+    
+    // Web Frameworks (good for code injection labs)
+    if (description.includes('django') || description.includes('flask') || description.includes('rails') ||
+        description.includes('laravel') || description.includes('symfony') || description.includes('spring') ||
+        description.includes('express') || description.includes('node.js')) {
+      return 'Web Framework';
+    }
+    
+    // Collaboration Tools (often network accessible)
+    if (description.includes('confluence') || description.includes('jira') || description.includes('redmine') ||
+        description.includes('grafana') || description.includes('kibana') || description.includes('splunk')) {
+      return 'Collaboration';
     }
     
     return 'Other';
@@ -259,5 +421,116 @@ export class CveService {
     }
 
     return Math.min(score, 10);
+  }
+
+  /**
+   * Enhanced filtering for lab suitability - applies client-side filters
+   * that can't be done at the NVD API level
+   */
+  private filterForLabSuitability(vulnerabilities: any[], options: {
+    excludeAuthenticated?: boolean;
+    attackVector?: string[];
+    attackComplexity?: string[];
+    userInteraction?: string[];
+  }): any[] {
+    return vulnerabilities.filter(vuln => {
+      // Basic lab suitability checks
+      if (!vuln.cvssScore || vuln.cvssScore < 7.0) {
+        return false;
+      }
+      
+      // Filter by attack vector
+      if (options.attackVector && !options.attackVector.includes(vuln.attackVector?.toUpperCase())) {
+        return false;
+      }
+      
+      // Check CVSS vector for complexity and user interaction
+      if (vuln.cvssVector) {
+        // Attack Complexity filtering
+        if (options.attackComplexity?.includes('LOW') && !vuln.cvssVector.includes('AC:L')) {
+          return false;
+        }
+        if (options.attackComplexity?.includes('HIGH') && !vuln.cvssVector.includes('AC:H')) {
+          return false;
+        }
+        
+        // User Interaction filtering
+        if (options.userInteraction?.includes('NONE') && !vuln.cvssVector.includes('UI:N')) {
+          return false;
+        }
+        if (options.userInteraction?.includes('REQUIRED') && !vuln.cvssVector.includes('UI:R')) {
+          return false;
+        }
+      }
+      
+      // Exclude authenticated vulnerabilities if requested
+      if (options.excludeAuthenticated) {
+        const description = vuln.description?.toLowerCase() || '';
+        const excludePatterns = [
+          'requires authentication',
+          'authenticated user',
+          'valid credentials',
+          'login required',
+          'administrative access',
+          'admin privileges',
+          'physical access',
+          'local access only',
+          'must be logged in',
+          'privilege escalation'
+        ];
+        
+        if (excludePatterns.some(pattern => description.includes(pattern))) {
+          return false;
+        }
+        
+        // Also check CVSS vector for privilege requirements
+        if (vuln.cvssVector && vuln.cvssVector.includes('PR:H')) {
+          return false; // High privileges required
+        }
+      }
+      
+      // Check if technology is lab-deployable
+      const product = vuln.affectedProduct?.toLowerCase() || '';
+      const labSuitableTech = this.isLabSuitableTechnology(product);
+      
+      return labSuitableTech;
+    });
+  }
+  
+  /**
+   * Check if a technology/product is suitable for lab deployment
+   */
+  private isLabSuitableTechnology(product: string): boolean {
+    const labSuitableKeywords = [
+      // Web Servers
+      'apache', 'nginx', 'iis', 'tomcat', 'jetty', 'lighttpd',
+      
+      // CMS & Web Apps
+      'wordpress', 'drupal', 'joomla', 'magento', 'phpbb', 'mediawiki',
+      
+      // Databases
+      'mysql', 'postgresql', 'mongodb', 'redis', 'mariadb', 'sqlite',
+      
+      // Network Services
+      'openssh', 'ssh', 'ftp', 'proftpd', 'vsftpd', 'bind', 'dns',
+      'squid', 'proxy', 'postfix', 'sendmail', 'exim',
+      
+      // Web Frameworks & Platforms
+      'node.js', 'nodejs', 'express', 'django', 'flask', 'rails',
+      'laravel', 'codeigniter', 'symfony', 'spring',
+      
+      // Container & DevOps
+      'docker', 'kubernetes', 'jenkins', 'gitlab', 'nexus',
+      'sonarqube', 'artifactory',
+      
+      // Security & Monitoring
+      'grafana', 'kibana', 'elasticsearch', 'logstash',
+      'splunk', 'nagios', 'zabbix',
+      
+      // Collaboration
+      'confluence', 'jira', 'redmine', 'trac'
+    ];
+    
+    return labSuitableKeywords.some(keyword => product.includes(keyword));
   }
 }

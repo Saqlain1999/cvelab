@@ -14,10 +14,12 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   
   getCve(id: string): Promise<Cve | undefined>;
+  getCveByCveId(cveId: string): Promise<Cve | undefined>;
   getCveByIds(ids: string[]): Promise<Cve[]>;
   getCves(filters?: CveFilters): Promise<Cve[]>;
   createCve(cve: InsertCve): Promise<Cve>;
   updateCve(id: string, updates: Partial<InsertCve>): Promise<Cve | undefined>;
+  createOrUpdateCve(cve: InsertCve): Promise<{ cve: Cve; isNew: boolean; changes?: string[] }>;
   deleteCve(id: string): Promise<boolean>;
   
   getCveScan(id: string): Promise<CveScan | undefined>;
@@ -197,6 +199,10 @@ export class MemStorage implements IStorage {
     return this.cves.get(id);
   }
 
+  async getCveByCveId(cveId: string): Promise<Cve | undefined> {
+    return Array.from(this.cves.values()).find(cve => cve.cveId === cveId);
+  }
+
   async getCveByIds(ids: string[]): Promise<Cve[]> {
     return ids.map(id => this.cves.get(id)).filter(Boolean) as Cve[];
   }
@@ -303,6 +309,40 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
+  async createOrUpdateCve(cve: InsertCve): Promise<{ cve: Cve; isNew: boolean; changes?: string[] }> {
+    // Import here to avoid circular dependency
+    const { CveDuplicateDetectionService } = await import('./services/cveDuplicateDetectionService');
+    
+    const existing = await this.getCveByCveId(cve.cveId);
+    
+    if (!existing) {
+      // Create new CVE
+      const newCve = await this.createCve(cve);
+      return { cve: newCve, isNew: true };
+    }
+    
+    // Check if we should update the existing CVE
+    if (!CveDuplicateDetectionService.shouldUpdateCve(existing)) {
+      return { cve: existing, isNew: false, changes: [] };
+    }
+    
+    // Merge the CVE data
+    const mergeResult = await CveDuplicateDetectionService.checkAndMergeCve(
+      cve, [existing]
+    );
+    
+    if (mergeResult.isDuplicate && mergeResult.mergedCve && mergeResult.changes?.length) {
+      const updated = await this.updateCve(existing.id, mergeResult.mergedCve);
+      return { 
+        cve: updated!, 
+        isNew: false, 
+        changes: mergeResult.changes 
+      };
+    }
+    
+    return { cve: existing, isNew: false, changes: [] };
+  }
+
   async deleteCve(id: string): Promise<boolean> {
     return this.cves.delete(id);
   }
@@ -330,6 +370,16 @@ export class MemStorage implements IStorage {
       labDeployable: insertScan.labDeployable ?? 0,
       withPoc: insertScan.withPoc ?? 0,
       criticalSeverity: insertScan.criticalSeverity ?? 0,
+      
+      // Enhanced enrichment tracking fields
+      fingerprintingCompleted: insertScan.fingerprintingCompleted ?? 0,
+      dockerAnalysisCompleted: insertScan.dockerAnalysisCompleted ?? 0,
+      multiSourceDiscoveryCompleted: insertScan.multiSourceDiscoveryCompleted ?? 0,
+      totalSourcesDiscovered: insertScan.totalSourcesDiscovered ?? 0,
+      enrichmentFailures: insertScan.enrichmentFailures ?? 0,
+      
+      currentPhase: insertScan.currentPhase || 'initializing',
+      enrichmentMetrics: insertScan.enrichmentMetrics || null,
       errorMessage: insertScan.errorMessage ?? null,
       id,
       startedAt: now,

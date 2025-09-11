@@ -8,6 +8,8 @@ import { GoogleSheetsService } from "./services/googleSheetsService";
 import { advancedScoringService } from "./services/advancedScoringService";
 import { multiSourceDiscoveryService } from "./services/multiSourceDiscoveryService";
 import { dockerDeploymentService } from "./services/dockerDeploymentService";
+import { fingerprintingService } from "./services/fingerprintingService";
+import { CveDuplicateDetectionService } from "./services/cveDuplicateDetectionService";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const cveService = new CveService();
@@ -58,6 +60,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error fetching stats:', error);
       res.status(500).json({ message: 'Failed to fetch stats' });
+    }
+  });
+
+  // Fingerprinting endpoints
+  app.get("/api/cves/:id/fingerprint", async (req, res) => {
+    try {
+      const cve = await storage.getCve(req.params.id);
+      if (!cve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+
+      const fingerprintResult = fingerprintingService.generateFingerprint(cve, cve.discoveryMetadata);
+      res.json(fingerprintResult);
+    } catch (error) {
+      console.error('Error generating fingerprint:', error);
+      res.status(500).json({ message: 'Failed to generate fingerprint' });
+    }
+  });
+
+  app.get("/api/cves/:id/fingerprintable", async (req, res) => {
+    try {
+      const cve = await storage.getCve(req.params.id);
+      if (!cve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+
+      const fingerprintableResult = fingerprintingService.isFingerprintable(cve);
+      res.json(fingerprintableResult);
+    } catch (error) {
+      console.error('Error checking fingerprintability:', error);
+      res.status(500).json({ message: 'Failed to check fingerprintability' });
+    }
+  });
+
+  app.get("/api/cves/:id/commands/:type", async (req, res) => {
+    try {
+      const { id, type } = req.params;
+      const { target = 'TARGET_IP' } = req.query;
+
+      const cve = await storage.getCve(id);
+      if (!cve) {
+        return res.status(404).json({ message: 'CVE not found' });
+      }
+
+      let commands;
+      switch (type) {
+        case 'curl':
+          commands = fingerprintingService.generateCurlCommands(cve, String(target));
+          break;
+        case 'nmap':
+          commands = fingerprintingService.generateNmapCommands(cve, String(target));
+          break;
+        case 'nuclei':
+          commands = fingerprintingService.generateNucleiCommands(cve, String(target));
+          break;
+        default:
+          return res.status(400).json({ message: 'Invalid command type. Use curl, nmap, or nuclei' });
+      }
+
+      res.json({ commands, type, target });
+    } catch (error) {
+      console.error(`Error generating ${req.params.type} commands:`, error);
+      res.status(500).json({ message: `Failed to generate ${req.params.type} commands` });
     }
   });
 
@@ -135,17 +200,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Background scan function
   async function performCveScan(scanId: string, timeframeYears: number) {
     try {
-      await storage.updateCveScan(scanId, { status: 'running' });
+      await storage.updateCveScan(scanId, { 
+        status: 'running', 
+        currentPhase: 'initializing'
+      });
 
-      // Fetch CVEs from NIST
-      console.log(`Starting CVE scan for ${timeframeYears} years...`);
-      const nistCves = await cveService.fetchCvesFromNist(timeframeYears);
-      console.log(`Fetched ${nistCves.length} CVEs from NIST`);
+      // Fetch CVEs from NIST with enhanced targeting for lab-suitable vulnerabilities
+      console.log(`Starting targeted CVE scan for ${timeframeYears} years...`);
+      await storage.updateCveScan(scanId, { currentPhase: 'fetching' });
       
+      const nistCves = await cveService.fetchCvesFromNist({
+        timeframeYears,
+        severities: ['HIGH', 'CRITICAL'],
+        attackVector: ['NETWORK'],
+        attackComplexity: ['LOW'],
+        userInteraction: ['NONE', 'REQUIRED'], // Allow both for wider coverage
+        excludeAuthenticated: true,
+        onlyLabSuitable: true,
+        keywords: [
+          'remote code execution', 'sql injection', 'cross-site scripting',
+          'path traversal', 'deserialization', 'template injection',
+          'server-side request forgery', 'xml external entity', 'file upload'
+        ]
+      });
+      console.log(`Fetched ${nistCves.length} lab-suitable CVEs from NIST`);
+      
+      await storage.updateCveScan(scanId, { currentPhase: 'enriching' });
+      
+      // Enhanced tracking variables
       let totalFound = 0;
       let labDeployable = 0;
       let withPoc = 0;
       let criticalSeverity = 0;
+      let fingerprintingCompleted = 0;
+      let dockerAnalysisCompleted = 0;
+      let multiSourceDiscoveryCompleted = 0;
+      let totalSourcesDiscovered = 0;
+      let enrichmentFailures = 0;
+      
+      // Detailed enrichment metrics
+      const enrichmentMetrics = {
+        sourceBreakdown: {},
+        avgSourcesPerCve: 0,
+        fingerprintingSuccessRate: 0,
+        dockerAnalysisSuccessRate: 0,
+        topTechnologies: {},
+        avgLabSuitabilityScore: 0,
+        enrichmentErrors: []
+      };
 
       // Process each CVE
       for (const cveData of nistCves) {
@@ -159,87 +261,244 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // Enhanced multi-source PoC discovery
           console.log(`Discovering comprehensive sources for ${cveData.cveId}...`);
-          const discoveryResults = await multiSourceDiscoveryService.discoverAllSources(
-            cveData.cveId,
-            { 
-              query: `${cveData.cveId} poc exploit vulnerability`,
-              maxResults: 20,
-              includeDockerInfo: true
-            }
-          );
-
-          if (discoveryResults.sources.length > 0) {
-            withPoc++;
-            cveData.hasPublicPoc = true;
-            
-            // Collect URLs from all sources (GitHub, Medium, DockerHub, YouTube, etc.)
-            cveData.pocUrls = discoveryResults.sources.map(source => source.url);
-            
-            // Precise Docker deployability based on actual deployment capabilities
-            const hasActualDockerCapability = discoveryResults.dockerInfo.some(info => 
-              (info.hasDockerfile || info.hasCompose) && info.deploymentComplexity !== 'complex'
+          try {
+            const discoveryResults = await multiSourceDiscoveryService.discoverAllSources(
+              cveData.cveId,
+              { 
+                query: `${cveData.cveId} poc exploit vulnerability`,
+                maxResults: 20,
+                includeDockerInfo: true
+              }
             );
-            const hasDockerHubContainers = discoveryResults.sources.some(source => 
-              source.type === 'dockerhub'
-            );
+
+            multiSourceDiscoveryCompleted++;
             
-            // Only mark as deployable if there are actual Docker deployment capabilities
-            cveData.isDockerDeployable = hasActualDockerCapability || hasDockerHubContainers;
-            if (cveData.isDockerDeployable) {
-              labDeployable++;
+            if (discoveryResults.sources.length > 0) {
+              withPoc++;
+              cveData.hasPublicPoc = true;
+              
+              // Track sources discovered
+              totalSourcesDiscovered += discoveryResults.totalSources;
+              
+              // Update source breakdown metrics
+              Object.keys(discoveryResults.sourceBreakdown).forEach(sourceType => {
+                enrichmentMetrics.sourceBreakdown[sourceType] = 
+                  (enrichmentMetrics.sourceBreakdown[sourceType] || 0) + discoveryResults.sourceBreakdown[sourceType];
+              });
+              
+              // Collect URLs from all sources (GitHub, Medium, DockerHub, YouTube, etc.)
+              cveData.pocUrls = discoveryResults.sources.map(source => source.url);
+              
+              // Precise Docker deployability based on actual deployment capabilities
+              const hasActualDockerCapability = discoveryResults.dockerInfo.some(info => 
+                (info.hasDockerfile || info.hasCompose) && info.deploymentComplexity !== 'complex'
+              );
+              const hasDockerHubContainers = discoveryResults.sources.some(source => 
+                source.type === 'dockerhub'
+              );
+              
+              // Only mark as deployable if there are actual Docker deployment capabilities
+              cveData.isDockerDeployable = hasActualDockerCapability || hasDockerHubContainers;
+              if (cveData.isDockerDeployable) {
+                labDeployable++;
+              }
+
+              // Store comprehensive discovery metadata
+              cveData.discoveryMetadata = {
+                totalSources: discoveryResults.totalSources,
+                sourceBreakdown: discoveryResults.sourceBreakdown,
+                dockerInfo: discoveryResults.dockerInfo,
+                topSources: discoveryResults.sources.slice(0, 5).map(source => ({
+                  type: source.type,
+                  title: source.title,
+                  url: source.url,
+                  relevanceScore: source.relevanceScore
+                })),
+                lastEnhanced: new Date()
+              };
+
+              console.log(`Found ${discoveryResults.totalSources} sources across ${Object.keys(discoveryResults.sourceBreakdown).length} platforms for ${cveData.cveId}`);
+            } else {
+              console.log(`No PoC sources found for ${cveData.cveId}`);
             }
-
-            // Store comprehensive discovery metadata
-            cveData.discoveryMetadata = {
-              totalSources: discoveryResults.totalSources,
-              sourceBreakdown: discoveryResults.sourceBreakdown,
-              dockerInfo: discoveryResults.dockerInfo,
-              topSources: discoveryResults.sources.slice(0, 5).map(source => ({
-                type: source.type,
-                title: source.title,
-                url: source.url,
-                relevanceScore: source.relevanceScore
-              }))
-            };
-
-            console.log(`Found ${discoveryResults.totalSources} sources across ${Object.keys(discoveryResults.sourceBreakdown).length} platforms for ${cveData.cveId}`);
-          } else {
-            console.log(`No PoC sources found for ${cveData.cveId}`);
+          } catch (error) {
+            console.warn(`Multi-source discovery failed for ${cveData.cveId}:`, error);
+            enrichmentFailures++;
+            enrichmentMetrics.enrichmentErrors.push({
+              cveId: cveData.cveId,
+              phase: 'discovery',
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
           }
 
           // Determine if curl/nmap testable (network services)
           cveData.isCurlTestable = cveData.attackVector === 'Network' && 
             ['Web Server', 'Network Service', 'CMS'].includes(cveData.category);
 
+          // Generate comprehensive fingerprinting data
+          try {
+            console.log(`Generating fingerprinting data for ${cveData.cveId}...`);
+            const fingerprintResult = fingerprintingService.generateFingerprint(cveData, cveData.discoveryMetadata);
+            cveData.fingerprintInfo = {
+              commands: fingerprintResult.commands,
+              detectionStrategy: fingerprintResult.detectionStrategy,
+              ports: fingerprintResult.ports,
+              protocols: fingerprintResult.protocols,
+              confidence: fingerprintResult.confidence,
+              recommendations: fingerprintResult.recommendations,
+              lastGenerated: new Date()
+            };
+            
+            fingerprintingCompleted++;
+            
+            // Update testability based on fingerprinting analysis
+            if (fingerprintResult.commands.length > 0) {
+              cveData.isCurlTestable = fingerprintResult.commands.some(cmd => cmd.type === 'curl');
+            }
+            
+            console.log(`Generated ${fingerprintResult.commands.length} fingerprinting commands for ${cveData.cveId}`);
+          } catch (error) {
+            console.warn(`Failed to generate fingerprinting data for ${cveData.cveId}:`, error);
+            enrichmentFailures++;
+            enrichmentMetrics.enrichmentErrors.push({
+              cveId: cveData.cveId,
+              phase: 'fingerprinting',
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            cveData.fingerprintInfo = { error: 'Failed to generate fingerprinting data', lastGenerated: new Date() };
+          }
+
+          // Analyze Docker deployment possibilities in depth
+          try {
+            console.log(`Analyzing Docker deployment for ${cveData.cveId}...`);
+            const deploymentAnalysis = await dockerDeploymentService.analyzeDeploymentPossibilities(cveData);
+            
+            dockerAnalysisCompleted++;
+            
+            if (deploymentAnalysis.isDeployable && deploymentAnalysis.recommendedTemplate) {
+              // Generate automated deployment if possible
+              const automatedDeployment = await dockerDeploymentService.generateAutomatedDeployment(cveData);
+              
+              cveData.dockerInfo = {
+                isDeployable: deploymentAnalysis.isDeployable,
+                recommendedTemplate: deploymentAnalysis.recommendedTemplate,
+                alternativeOptions: deploymentAnalysis.alternativeOptions,
+                deploymentChallenges: deploymentAnalysis.deploymentChallenges,
+                mitigationSuggestions: deploymentAnalysis.mitigationSuggestions,
+                communityResources: deploymentAnalysis.communityResources.slice(0, 3), // Limit for storage
+                automatedDeployment: automatedDeployment ? {
+                  deploymentScript: automatedDeployment.deploymentScript,
+                  testingScript: automatedDeployment.testingScript,
+                  cleanupScript: automatedDeployment.cleanupScript,
+                  estimatedTime: automatedDeployment.deploymentTime,
+                  resourceRequirements: automatedDeployment.resourceRequirements
+                } : null,
+                lastAnalyzed: new Date()
+              };
+              
+              // Update deployability flags based on comprehensive analysis
+              cveData.isDockerDeployable = deploymentAnalysis.isDeployable;
+              if (cveData.isDockerDeployable && !hasActualDockerCapability && !hasDockerHubContainers) {
+                labDeployable++; // Increment if not already counted
+              }
+              
+              console.log(`Docker deployment analysis completed for ${cveData.cveId}: ${deploymentAnalysis.isDeployable ? 'Deployable' : 'Not deployable'}`);
+            } else {
+              cveData.dockerInfo = {
+                isDeployable: false,
+                deploymentChallenges: deploymentAnalysis.deploymentChallenges,
+                reason: 'No suitable deployment template found',
+                lastAnalyzed: new Date()
+              };
+              console.log(`CVE ${cveData.cveId} is not suitable for Docker deployment`);
+            }
+          } catch (error) {
+            console.warn(`Failed to analyze Docker deployment for ${cveData.cveId}:`, error);
+            enrichmentFailures++;
+            enrichmentMetrics.enrichmentErrors.push({
+              cveId: cveData.cveId,
+              phase: 'docker-analysis',
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            cveData.dockerInfo = { 
+              isDeployable: false, 
+              error: 'Failed to analyze Docker deployment',
+              lastAnalyzed: new Date()
+            };
+          }
+
           // Calculate advanced lab suitability score AFTER all enrichment data is available
           const advancedScore = cveService.calculateAdvancedLabScore(cveData);
           cveData.labSuitabilityScore = advancedScore.score;
           cveData.scoringBreakdown = advancedScore.breakdown;
 
+          // Track technology metrics
+          if (cveData.technology) {
+            enrichmentMetrics.topTechnologies[cveData.technology] = 
+              (enrichmentMetrics.topTechnologies[cveData.technology] || 0) + 1;
+          }
+
           if (cveData.severity === 'CRITICAL') {
             criticalSeverity++;
           }
 
-          // Save CVE to storage
-          await storage.createCve(cveData);
+          // Save or update CVE with intelligent duplicate detection
+          const result = await storage.createOrUpdateCve(cveData);
+          
+          if (!result.isNew && result.changes && result.changes.length > 0) {
+            console.log(`Updated existing CVE ${cveData.cveId}: ${CveDuplicateDetectionService.generateChangesSummary(result.changes)}`);
+          } else if (result.isNew) {
+            console.log(`Created new CVE ${cveData.cveId} with lab suitability score: ${cveData.labSuitabilityScore}`);
+          }
 
           // Add small delay to avoid overwhelming APIs
           await new Promise(resolve => setTimeout(resolve, 100));
         } catch (error) {
           console.error(`Error processing CVE ${cveData.cveId}:`, error);
+          enrichmentFailures++;
+          enrichmentMetrics.enrichmentErrors.push({
+            cveId: cveData.cveId,
+            phase: 'general',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
         }
       }
 
-      // Update scan with results
+      // Calculate final enrichment metrics
+      await storage.updateCveScan(scanId, { currentPhase: 'finalizing' });
+      
+      enrichmentMetrics.avgSourcesPerCve = totalFound > 0 ? totalSourcesDiscovered / totalFound : 0;
+      enrichmentMetrics.fingerprintingSuccessRate = totalFound > 0 ? (fingerprintingCompleted / totalFound) * 100 : 0;
+      enrichmentMetrics.dockerAnalysisSuccessRate = totalFound > 0 ? (dockerAnalysisCompleted / totalFound) * 100 : 0;
+      enrichmentMetrics.avgLabSuitabilityScore = 0; // Will be calculated if needed
+      
+      // Limit error log size for storage
+      if (enrichmentMetrics.enrichmentErrors.length > 50) {
+        enrichmentMetrics.enrichmentErrors = enrichmentMetrics.enrichmentErrors.slice(0, 50);
+      }
+
+      // Update scan with comprehensive results
       await storage.updateCveScan(scanId, {
         status: 'completed',
+        currentPhase: 'completed',
         totalFound,
         labDeployable,
         withPoc,
-        criticalSeverity
+        criticalSeverity,
+        fingerprintingCompleted,
+        dockerAnalysisCompleted,
+        multiSourceDiscoveryCompleted,
+        totalSourcesDiscovered,
+        enrichmentFailures,
+        enrichmentMetrics
       });
 
-      console.log(`CVE scan completed: ${totalFound} total, ${labDeployable} deployable, ${withPoc} with PoC`);
+      console.log(`CVE scan completed successfully!`);
+      console.log(`📊 Results: ${totalFound} total, ${labDeployable} deployable, ${withPoc} with PoC, ${criticalSeverity} critical`);
+      console.log(`🔍 Enrichment: ${multiSourceDiscoveryCompleted} discovered, ${fingerprintingCompleted} fingerprinted, ${dockerAnalysisCompleted} analyzed`);
+      console.log(`📈 Sources: ${totalSourcesDiscovered} total sources discovered across all platforms`);
+      console.log(`⚠️  Failures: ${enrichmentFailures} enrichment failures occurred`);
+      console.log(`✅ Success rates: Discovery ${((multiSourceDiscoveryCompleted / totalFound) * 100).toFixed(1)}%, Fingerprinting ${enrichmentMetrics.fingerprintingSuccessRate.toFixed(1)}%, Docker ${enrichmentMetrics.dockerAnalysisSuccessRate.toFixed(1)}%`);
     } catch (error) {
       console.error('CVE scan failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

@@ -44,7 +44,17 @@ export const cveScans = pgTable("cve_scans", {
   labDeployable: real("lab_deployable").default(0),
   withPoc: real("with_poc").default(0),
   criticalSeverity: real("critical_severity").default(0),
+  
+  // Enhanced enrichment tracking
+  fingerprintingCompleted: real("fingerprinting_completed").default(0),
+  dockerAnalysisCompleted: real("docker_analysis_completed").default(0),
+  multiSourceDiscoveryCompleted: real("multi_source_discovery_completed").default(0),
+  totalSourcesDiscovered: real("total_sources_discovered").default(0),
+  enrichmentFailures: real("enrichment_failures").default(0),
+  
   status: text("status").notNull().default("pending"),
+  currentPhase: text("current_phase").default("initializing"), // 'initializing', 'fetching', 'enriching', 'finalizing', 'completed'
+  enrichmentMetrics: jsonb("enrichment_metrics"), // Detailed breakdown of enrichment results
   startedAt: timestamp("started_at").default(sql`now()`),
   completedAt: timestamp("completed_at"),
   errorMessage: text("error_message"),
