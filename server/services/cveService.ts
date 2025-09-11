@@ -38,10 +38,14 @@ export class CveService {
   async fetchCvesFromNist(timeframeYears: number = 3): Promise<any[]> {
     const startDate = new Date();
     startDate.setFullYear(startDate.getFullYear() - timeframeYears);
+    startDate.setHours(0, 0, 0, 0);
+    
+    const endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
     
     const params = new URLSearchParams({
-      pubStartDate: startDate.toISOString().split('T')[0] + 'T00:00:000',
-      pubEndDate: new Date().toISOString().split('T')[0] + 'T23:59:999',
+      pubStartDate: startDate.toISOString(),
+      pubEndDate: endDate.toISOString(),
       resultsPerPage: '2000'
     });
 

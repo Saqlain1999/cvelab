@@ -137,6 +137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fetch CVEs from NIST
       console.log(`Starting CVE scan for ${timeframeYears} years...`);
       const nistCves = await cveService.fetchCvesFromNist(timeframeYears);
+      console.log(`Fetched ${nistCves.length} CVEs from NIST`);
       
       let totalFound = 0;
       let labDeployable = 0;
