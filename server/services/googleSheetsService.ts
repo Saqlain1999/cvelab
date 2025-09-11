@@ -20,8 +20,9 @@ export class GoogleSheetsService {
       await this.clearSheet(spreadsheetId, sheetName);
 
       // Insert new data
+      const encodedSheetName = encodeURIComponent(sheetName);
       const response = await fetch(
-        `${this.SHEETS_BASE_URL}/${spreadsheetId}/values/${sheetName}:append?valueInputOption=USER_ENTERED&key=${this.API_KEY}`,
+        `${this.SHEETS_BASE_URL}/${spreadsheetId}/values/${encodedSheetName}:append?valueInputOption=USER_ENTERED&key=${this.API_KEY}`,
         {
           method: 'POST',
           headers: {
@@ -80,8 +81,9 @@ export class GoogleSheetsService {
   }
 
   private async clearSheet(spreadsheetId: string, sheetName: string): Promise<void> {
+    const encodedSheetName = encodeURIComponent(sheetName);
     const response = await fetch(
-      `${this.SHEETS_BASE_URL}/${spreadsheetId}/values/${sheetName}:clear?key=${this.API_KEY}`,
+      `${this.SHEETS_BASE_URL}/${spreadsheetId}/values/${encodedSheetName}:clear?key=${this.API_KEY}`,
       {
         method: 'POST',
         headers: {

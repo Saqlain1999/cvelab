@@ -72,19 +72,100 @@ export default function Dashboard() {
   };
 
   const handleExport = () => {
-    // TODO: Implement CSV export
+    // Export filtered CVEs as CSV
+    const headers = [
+      'CVE ID', 'Severity', 'CVSS Score', 'Published Date', 'Technology', 
+      'Category', 'Description', 'Has Public PoC', 'Docker Deployable', 
+      'Curl/Nmap Testable', 'PoC URLs', 'Attack Vector', 'Affected Versions'
+    ];
+    
+    const csvData = [
+      headers,
+      ...cves.map(cve => [
+        cve.cveId,
+        cve.severity,
+        cve.cvssScore?.toString() || 'N/A',
+        new Date(cve.publishedDate).toLocaleDateString(),
+        cve.technology || cve.affectedProduct || 'Unknown',
+        cve.category || 'Other',
+        cve.description.substring(0, 200) + '...',
+        cve.hasPublicPoc ? 'Yes' : 'No',
+        cve.isDockerDeployable ? 'Yes' : 'No',
+        cve.isCurlTestable ? 'Yes' : 'No',
+        (cve.pocUrls || []).join('; '),
+        cve.attackVector || 'Unknown',
+        (cve.affectedVersions || []).join('; ')
+      ])
+    ];
+
+    const csvContent = csvData.map(row => 
+      row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `cve-lab-results-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
     toast({
-      title: "Export Started",
-      description: "CVE data export has been initiated.",
+      title: "Export Complete",
+      description: `Exported ${cves.length} CVEs to CSV file.`,
     });
   };
 
-  const handleExportToSheets = () => {
-    // TODO: Implement Google Sheets export
-    toast({
-      title: "Google Sheets Export",
-      description: "Exporting CVE data to Google Sheets...",
-    });
+  const handleExportToSheets = async () => {
+    try {
+      // Create a new spreadsheet first
+      const createResponse = await fetch('/api/export/sheets/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          title: `CVE Lab Results - ${new Date().toLocaleDateString()}` 
+        })
+      });
+
+      if (!createResponse.ok) {
+        throw new Error('Failed to create spreadsheet');
+      }
+
+      const { spreadsheetId, url } = await createResponse.json();
+
+      // Export the filtered CVEs to the new spreadsheet
+      const exportResponse = await fetch('/api/export/sheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          spreadsheetId,
+          sheetName: 'CVE Results',
+          filters
+        })
+      });
+
+      if (!exportResponse.ok) {
+        throw new Error('Failed to export to spreadsheet');
+      }
+
+      const result = await exportResponse.json();
+      
+      toast({
+        title: "Export Successful",
+        description: `${result.message}. View at: ${url}`,
+      });
+
+      // Open the spreadsheet in a new tab
+      window.open(url, '_blank');
+    } catch (error) {
+      toast({
+        title: "Export Failed", 
+        description: "Please configure Google Sheets API key in settings.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
