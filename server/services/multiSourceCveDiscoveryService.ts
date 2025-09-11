@@ -44,6 +44,8 @@ export interface RawCveData {
 
 export interface CveDiscoveryOptions {
   timeframeYears: number;
+  startDate?: string; // YYYY-MM-DD format
+  endDate?: string; // YYYY-MM-DD format
   severities?: string[];
   keywords?: string[];
   technologies?: string[];

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, ChevronDown } from "lucide-react";
+import { CalendarDays, ChevronDown, AlertCircle } from "lucide-react";
 import { format, subDays, subMonths, subYears, isAfter, isBefore, differenceInDays } from "date-fns";
 import { DateRange } from "react-day-picker";
 
@@ -35,6 +35,7 @@ export function DateRangePicker({
   maxDate = new Date(),
 }: DateRangePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   const presets: PresetOption[] = [
     {
@@ -112,6 +113,9 @@ export function DateRangePicker({
   };
 
   const handleDateRangeSelect = (range: DateRange | undefined) => {
+    // Clear any existing validation message
+    setValidationMessage(null);
+    
     if (!range) {
       onChange(undefined);
       return;
@@ -121,21 +125,25 @@ export function DateRangePicker({
     if (range.from && range.to) {
       // Check if start is after end
       if (isAfter(range.from, range.to)) {
-        return; // Invalid range
+        setValidationMessage("Start date must be before end date");
+        return;
       }
 
       // Check maximum days limit
       const daysDiff = differenceInDays(range.to, range.from);
       if (daysDiff > maxDays) {
-        return; // Range too large
+        setValidationMessage(`Maximum range is ${maxDays} days (${Math.round(maxDays/365)} years). Selected: ${daysDiff} days.`);
+        return;
       }
 
       // Check date bounds
       if (minDate && isBefore(range.from, minDate)) {
-        return; // Start date too early
+        setValidationMessage(`Start date cannot be before ${format(minDate, "MMM d, yyyy")}`);
+        return;
       }
       if (maxDate && isAfter(range.to, maxDate)) {
-        return; // End date too late
+        setValidationMessage(`End date cannot be after ${format(maxDate, "MMM d, yyyy")}`);
+        return;
       }
     }
 
@@ -193,10 +201,10 @@ export function DateRangePicker({
             {/* Preset Options */}
             <div className="border-r p-3 w-48">
               <div className="mb-3">
-                <label className="text-sm font-medium">Quick Presets</label>
+                <label htmlFor="preset-select" className="text-sm font-medium">Quick Presets</label>
               </div>
               <Select value={getCurrentPreset()} onValueChange={handlePresetSelect}>
-                <SelectTrigger className="w-full" data-testid="select-preset">
+                <SelectTrigger id="preset-select" className="w-full" data-testid="select-preset">
                   <SelectValue placeholder="Choose preset" />
                 </SelectTrigger>
                 <SelectContent>
@@ -240,8 +248,18 @@ export function DateRangePicker({
                 data-testid="calendar-date-range"
               />
               
+              {/* Validation Message */}
+              {validationMessage && (
+                <div className="pt-3 border-t mt-3">
+                  <div className="flex items-center gap-2 text-sm text-destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    {validationMessage}
+                  </div>
+                </div>
+              )}
+              
               {/* Range Info */}
-              {value?.from && value?.to && (
+              {value?.from && value?.to && !validationMessage && (
                 <div className="pt-3 border-t mt-3">
                   <div className="text-sm text-muted-foreground">
                     Selected range: {differenceInDays(value.to, value.from) + 1} days

@@ -39,6 +39,8 @@ interface NistCveResponse {
 
 interface CveTargetingOptions {
   timeframeYears?: number;
+  startDate?: string; // YYYY-MM-DD format
+  endDate?: string; // YYYY-MM-DD format
   severities?: ('LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL')[];
   attackVector?: ('NETWORK' | 'ADJACENT_NETWORK' | 'LOCAL' | 'PHYSICAL')[];
   attackComplexity?: ('LOW' | 'HIGH')[];
@@ -118,19 +120,38 @@ export class CveService {
   async fetchCvesFromAllSources(options: CveTargetingOptions = {}): Promise<any[]> {
     const {
       timeframeYears = 3,
+      startDate,
+      endDate,
       severities = ['HIGH', 'CRITICAL'],
       keywords = [],
       onlyLabSuitable = true,
       targetedCweIds = this.TARGET_CWE_IDS
     } = options;
 
+    // Determine scanning mode and parameters
+    const useDateRange = startDate && endDate;
+    const scanDescription = useDateRange 
+      ? `from ${startDate} to ${endDate}`
+      : `for ${timeframeYears} years`;
+
     console.log('CveService: Starting comprehensive multi-source CVE discovery');
-    console.log(`Discovery options: ${timeframeYears} years, severities: ${severities.join(',')}, lab-suitable: ${onlyLabSuitable}`);
+    console.log(`Discovery options: ${scanDescription}, severities: ${severities.join(',')}, lab-suitable: ${onlyLabSuitable}`);
 
     try {
+      // Calculate effective timeframe from date range if provided
+      let effectiveTimeframeYears = timeframeYears;
+      if (useDateRange) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        effectiveTimeframeYears = Math.max(1, Math.round(daysDiff / 365.25));
+      }
+
       // Prepare discovery options for multi-source service
       const discoveryOptions: CveDiscoveryOptions = {
-        timeframeYears,
+        timeframeYears: effectiveTimeframeYears,
+        startDate: useDateRange ? startDate : undefined,
+        endDate: useDateRange ? endDate : undefined,
         severities: severities.map(s => s.toUpperCase()),
         keywords: keywords.length > 0 ? keywords : [
           'remote code execution', 'sql injection', 'cross-site scripting',
@@ -138,7 +159,7 @@ export class CveService {
         ],
         technologies: this.extractTechnologiesFromLabPatterns(),
         maxResultsPerSource: 500,
-        includeHistorical: timeframeYears > 1,
+        includeHistorical: effectiveTimeframeYears > 1,
         prioritizeSources: ['mitre', 'vulners', 'cvedetails'] // Prioritize most reliable sources
       };
 
@@ -699,7 +720,7 @@ export class CveService {
       'nodejs', 'laravel', 'django', 'rails'
     );
 
-    return [...new Set(technologies)]; // Remove duplicates
+    return Array.from(new Set(technologies)); // Remove duplicates
   }
 
   /**

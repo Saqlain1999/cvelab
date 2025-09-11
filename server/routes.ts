@@ -393,14 +393,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/scans", async (req, res) => {
     try {
       const scanData = insertCveScanSchema.parse(req.body);
+      
+      // Additional validation for date range parameters
+      if (scanData.startDate && scanData.endDate) {
+        const startDate = new Date(scanData.startDate);
+        const endDate = new Date(scanData.endDate);
+        const now = new Date();
+        
+        // Validate that dates are not in the future
+        if (startDate > now || endDate > now) {
+          return res.status(400).json({ 
+            message: 'Scan dates cannot be in the future',
+            details: 'Please select dates up to today only'
+          });
+        }
+        
+        // Validate maximum date range (5 years)
+        const maxRangeDays = 5 * 365; // 5 years in days
+        const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysDiff > maxRangeDays) {
+          return res.status(400).json({ 
+            message: 'Date range too large',
+            details: `Maximum allowed range is 5 years (${maxRangeDays} days). Selected range: ${daysDiff} days`
+          });
+        }
+      }
+      
       const scan = await storage.createCveScan(scanData);
       
-      // Start background scan process
-      performCveScan(scan.id, scanData.timeframeYears || 3);
+      // Start background scan process with date range or timeframe
+      const scanParams = {
+        scanId: scan.id,
+        timeframeYears: scanData.timeframeYears || 3,
+        startDate: scanData.startDate,
+        endDate: scanData.endDate
+      };
+      
+      performCveScan(scanParams);
       
       res.json(scan);
     } catch (error) {
       console.error('Error starting CVE scan:', error);
+      
+      // Handle Zod validation errors
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ 
+          message: 'Invalid request data', 
+          details: error.message 
+        });
+      }
+      
       res.status(500).json({ message: 'Failed to start CVE scan' });
     }
   });
@@ -461,20 +503,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Background scan function
-  async function performCveScan(scanId: string, timeframeYears: number) {
+  async function performCveScan(params: { scanId: string; timeframeYears: number; startDate?: string; endDate?: string; }) {
+    const { scanId, timeframeYears, startDate, endDate } = params;
+    
     try {
       await storage.updateCveScan(scanId, { 
         status: 'running', 
         currentPhase: 'initializing'
       });
 
+      // Determine scanning parameters based on provided data
+      const useDateRange = startDate && endDate;
+      const scanDescription = useDateRange 
+        ? `from ${startDate} to ${endDate}`
+        : `for ${timeframeYears} years`;
+
       // Fetch CVEs from NIST with enhanced targeting for lab-suitable vulnerabilities
-      console.log(`Starting targeted CVE scan for ${timeframeYears} years...`);
+      console.log(`Starting targeted CVE scan ${scanDescription}...`);
       await storage.updateCveScan(scanId, { currentPhase: 'fetching' });
       
-      // Enhanced CVE discovery using multi-source approach
-      const discoveredCves = await cveService.fetchCvesFromAllSources({
-        timeframeYears,
+      // Prepare discovery options based on available parameters
+      const discoveryOptions = {
+        timeframeYears: useDateRange ? undefined : timeframeYears,
+        startDate: useDateRange ? startDate : undefined,
+        endDate: useDateRange ? endDate : undefined,
         severities: ['HIGH', 'CRITICAL'],
         attackVector: ['NETWORK'],
         attackComplexity: ['LOW'],
@@ -486,7 +538,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'path traversal', 'deserialization', 'template injection',
           'server-side request forgery', 'xml external entity', 'file upload'
         ]
-      });
+      };
+      
+      // Enhanced CVE discovery using multi-source approach
+      const discoveredCves = await cveService.fetchCvesFromAllSources(discoveryOptions);
       console.log(`Multi-source discovery completed: ${discoveredCves.length} lab-suitable CVEs from multiple platforms`);
       
       await storage.updateCveScan(scanId, { currentPhase: 'enriching' });

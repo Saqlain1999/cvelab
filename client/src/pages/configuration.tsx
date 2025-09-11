@@ -27,8 +27,12 @@ export default function Configuration() {
   });
 
   const startScanMutation = useMutation({
-    mutationFn: async (scanParams: { startDate: string; endDate: string; timeframeYears?: number }) => {
+    mutationFn: async (scanParams: { startDate?: string; endDate?: string; timeframeYears?: number }) => {
       const response = await apiRequest("POST", "/api/scans", scanParams);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.message || 'Failed to start scan');
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -36,16 +40,17 @@ export default function Configuration() {
       const days = dateRange?.from && dateRange?.to ? differenceInDays(dateRange.to, dateRange.from) + 1 : 0;
       const description = dateRange?.from && dateRange?.to 
         ? `Started scanning CVEs from ${format(dateRange.from, 'MMM d, yyyy')} to ${format(dateRange.to, 'MMM d, yyyy')} (${days} days)`
-        : 'Started CVE scan';
+        : 'Started CVE scan with default timeframe';
       toast({
         title: "CVE Scan Started",
         description,
       });
     },
     onError: (error) => {
+      console.error('Scan error:', error);
       toast({
         title: "Scan Failed",
-        description: error.message,
+        description: error.message || 'Unable to start CVE scan. Please try again.',
         variant: "destructive",
       });
     },
@@ -75,27 +80,47 @@ export default function Configuration() {
   });
 
   const handleStartScan = () => {
-    if (!dateRange?.from || !dateRange?.to) {
-      toast({
-        title: "Invalid Date Range",
-        description: "Please select both start and end dates for the scan.",
-        variant: "destructive",
+    // Smart parameter logic: use date range if available, otherwise use default timeframe
+    const hasDateRange = dateRange?.from && dateRange?.to;
+    
+    if (hasDateRange) {
+      // Validate date range
+      const startDate = format(dateRange.from!, 'yyyy-MM-dd');
+      const endDate = format(dateRange.to!, 'yyyy-MM-dd');
+      const daysDiff = differenceInDays(dateRange.to!, dateRange.from!) + 1;
+      
+      // Check for invalid future dates
+      const now = new Date();
+      if (dateRange.from! > now || dateRange.to! > now) {
+        toast({
+          title: "Invalid Date Range",
+          description: "Scan dates cannot be in the future. Please select dates up to today only.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Check for maximum range (5 years = 1825 days)
+      if (daysDiff > 1825) {
+        toast({
+          title: "Date Range Too Large",
+          description: `Maximum allowed range is 5 years (1825 days). Selected range: ${daysDiff} days.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Use date range parameters (don't send timeframeYears to avoid backend confusion)
+      startScanMutation.mutate({
+        startDate,
+        endDate
       });
-      return;
+    } else {
+      // Use default timeframe mode (don't send date parameters)
+      startScanMutation.mutate({
+        timeframeYears: 3 // Default 3 years
+      });
     }
-
-    // Convert date range to API format
-    const startDate = format(dateRange.from, 'yyyy-MM-dd');
-    const endDate = format(dateRange.to, 'yyyy-MM-dd');
-    
-    // Calculate approximate years for backward compatibility
-    const years = Math.max(1, Math.round(differenceInDays(dateRange.to, dateRange.from) / 365));
-    
-    startScanMutation.mutate({
-      startDate,
-      endDate,
-      timeframeYears: years
-    });
   };
 
   const handleTestSheets = () => {

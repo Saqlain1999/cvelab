@@ -59,6 +59,8 @@ export const cves = pgTable("cves", {
 export const cveScans = pgTable("cve_scans", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   timeframeYears: real("timeframe_years").notNull().default(3),
+  startDate: text("start_date"), // Optional date range start (YYYY-MM-DD format)
+  endDate: text("end_date"), // Optional date range end (YYYY-MM-DD format)
   totalFound: real("total_found").default(0),
   labDeployable: real("lab_deployable").default(0),
   withPoc: real("with_poc").default(0),
@@ -185,7 +187,33 @@ export const insertCveScanSchema = createInsertSchema(cveScans).omit({
   completedAt: true,
 }).extend({
   completedAt: z.date().nullable().optional(),
-});
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Start date must be in YYYY-MM-DD format").optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "End date must be in YYYY-MM-DD format").optional(),
+}).refine(
+  (data) => {
+    if (!data.startDate || !data.endDate) return true;
+    const start = new Date(data.startDate);
+    const end = new Date(data.endDate);
+    return start <= end;
+  },
+  {
+    message: "Start date must be before or equal to end date",
+    path: ["endDate"],
+  }
+).refine(
+  (data) => {
+    if (!data.startDate || !data.endDate) return true;
+    const start = new Date(data.startDate);
+    const end = new Date(data.endDate);
+    const maxDate = new Date();
+    maxDate.setFullYear(maxDate.getFullYear() - 5);
+    return start >= maxDate;
+  },
+  {
+    message: "Date range cannot exceed 5 years from today",
+    path: ["startDate"],
+  }
+);
 
 export const insertMonitoringConfigSchema = createInsertSchema(monitoringConfig).omit({
   id: true,

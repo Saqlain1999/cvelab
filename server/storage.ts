@@ -343,6 +343,8 @@ export class MemStorage implements IStorage {
     const now = new Date();
     const scan: CveScan = { 
       timeframeYears: insertScan.timeframeYears || 3,
+      startDate: insertScan.startDate || null,
+      endDate: insertScan.endDate || null,
       status: insertScan.status || 'pending',
       totalFound: insertScan.totalFound ?? 0,
       labDeployable: insertScan.labDeployable ?? 0,
