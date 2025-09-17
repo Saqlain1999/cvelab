@@ -1,5 +1,6 @@
 import { BaseSourceAdapter } from './baseSourceAdapter';
 import { RawCveData, CveDiscoveryOptions } from '../multiSourceCveDiscoveryService';
+import { startOfDay, endOfDay, addDays } from 'date-fns';
 
 /**
  * NIST NVD Adapter - Direct integration with NIST National Vulnerability Database
@@ -39,18 +40,27 @@ export class NistAdapter extends BaseSourceAdapter {
     const allCves: RawCveData[] = [];
     
     try {
-      // Calculate date range
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setFullYear(startDate.getFullYear() - options.timeframeYears);
+      // Use custom dates if provided, else calculate from timeframe
+      let endDate: Date;
+      let startDate: Date;
+      
+      if (options.startDate && options.endDate) {
+        startDate = startOfDay(new Date(options.startDate));
+        endDate = endOfDay(new Date(options.endDate));
+        console.log(`NIST: Using custom date range ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
+      } else {
+        endDate = endOfDay(new Date());
+        startDate = startOfDay(new Date());
+        startDate.setFullYear(startDate.getFullYear() - options.timeframeYears);
+        console.log(`NIST: Calculated date range ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
+      }
       
       // NIST API has a 120-day limit per request, so chunk it
       const maxDaysPerRequest = 120;
-      let currentStart = new Date(startDate);
+      let currentStart = startDate;
       
       while (currentStart < endDate) {
-        const currentEnd = new Date(currentStart);
-        currentEnd.setDate(currentEnd.getDate() + maxDaysPerRequest);
+        const currentEnd = endOfDay(addDays(currentStart, maxDaysPerRequest));
         if (currentEnd > endDate) {
           currentEnd.setTime(endDate.getTime());
         }
@@ -68,9 +78,9 @@ export class NistAdapter extends BaseSourceAdapter {
           console.warn(`NIST: Failed to fetch chunk ${currentStart.toISOString()} to ${currentEnd.toISOString()}:`, error);
         }
         
-        // Move to next chunk
-        currentStart = new Date(currentEnd);
-        currentStart.setDate(currentStart.getDate() + 1);
+        // Move to next chunk (add 1 day overlap to avoid gaps)
+        currentStart = addDays(currentEnd, 1);
+        if (currentStart >= endDate) break;
       }
 
       console.log(`NIST: Discovered ${allCves.length} CVEs`);
@@ -131,12 +141,11 @@ export class NistAdapter extends BaseSourceAdapter {
   }
 
   private async fetchCveChunk(startDate: Date, endDate: Date, options: CveDiscoveryOptions): Promise<RawCveData[]> {
-    // NIST API requires specific date format and parameter combinations
     const params = new URLSearchParams({
-      pubStartDate: startDate.toISOString().split('.')[0] + '.000Z',
-      pubEndDate: endDate.toISOString().split('.')[0] + '.000Z',
-      resultsPerPage: '2000'
-    });
+        pubStartDate: startDate.toISOString().split('.')[0] + '.000Z',
+        pubEndDate: endDate.toISOString().split('.')[0] + '.000Z',
+        resultsPerPage: '2000'
+      });
 
     // Start with basic request, then add filters incrementally
     console.log(`NIST: Fetching CVEs from ${params.get('pubStartDate')} to ${params.get('pubEndDate')}`);

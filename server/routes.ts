@@ -178,6 +178,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Read-only rate limits (from env) for visibility
+  app.get("/api/config/rate-limits", async (_req, res) => {
+    try {
+      const toNum = (v: any) => (v !== undefined ? Number(v) : undefined);
+      const config = {
+        default: {
+          rps: toNum(process.env.RATE_LIMIT_DEFAULT_RPS) ?? 2,
+          burst: toNum(process.env.RATE_LIMIT_DEFAULT_BURST) ?? 5,
+        },
+        services: {
+          GitHub: { rps: toNum(process.env.RL_GITHUB_RPS), burst: toNum(process.env.RL_GITHUB_BURST) },
+          GitLab: { rps: toNum(process.env.RL_GITLAB_RPS), burst: toNum(process.env.RL_GITLAB_BURST) },
+          DockerHub: { rps: toNum(process.env.RL_DOCKERHUB_RPS), burst: toNum(process.env.RL_DOCKERHUB_BURST) },
+          ExploitDB: { rps: toNum(process.env.RL_EXPLOITDB_RSS_RPS), burst: toNum(process.env.RL_EXPLOITDB_RSS_BURST) },
+          RSS: { rps: toNum(process.env.RL_RSS_RPS), burst: toNum(process.env.RL_RSS_BURST) },
+          Bing: { rps: toNum(process.env.RL_BING_RPS), burst: toNum(process.env.RL_BING_BURST) },
+        }
+      };
+      res.json(config);
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to read rate limits' });
+    }
+  });
+
   // ============================================================================
   // Multi-Source CVE Discovery API Endpoints
   // ============================================================================
@@ -301,6 +325,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error fetching CVEs with source attribution:', error);
       res.status(500).json({ message: 'Failed to fetch CVEs with source attribution' });
+    }
+  });
+
+  /**
+   * Get recent lab-suitable CVEs matching strict criteria
+   * - Published within last 365 days (or days query param)
+   * - Has public PoC
+   * - Fingerprintable (curl/nmap indicator stored)
+   * - Prefer prioritized vendors/technologies
+   */
+  app.get("/api/cves/recent-lab-targets", async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 365;
+      const since = new Date();
+      since.setDate(since.getDate() - (isNaN(days) ? 365 : days));
+
+      const all = await storage.getCves();
+
+      // Prioritized vendor/tech keywords
+      const priorityKeywords = new Set(
+        new CveService()
+          // extract prioritized list from service to keep single source of truth
+          // @ts-ignore access private via helper
+          .constructor.prototype.getPrioritizedKeywords?.() || []
+      );
+
+      const prioritized = (text: string | null | undefined) => {
+        const t = (text || '').toLowerCase();
+        for (const kw of priorityKeywords) {
+          if (t.includes(String(kw))) return true;
+        }
+        return false;
+      };
+
+      const filtered = all.filter(cve => {
+        const pubOk = new Date(cve.publishedDate) >= since;
+        const pocOk = !!cve.hasPublicPoc;
+        const fpOk = !!cve.isCurlTestable; // stored indicator derived from fingerprinting
+        return pubOk && pocOk && fpOk;
+      });
+
+      // Rank: prioritized vendors/tech first, then docker deployable, then higher CVSS, then recency
+      const ranked = filtered.sort((a, b) => {
+        const aPri = prioritized(a.affectedProduct) || prioritized(a.technology) || prioritized(a.description);
+        const bPri = prioritized(b.affectedProduct) || prioritized(b.technology) || prioritized(b.description);
+        if (aPri !== bPri) return aPri ? -1 : 1;
+        if (!!b.isDockerDeployable !== !!a.isDockerDeployable) return b.isDockerDeployable ? 1 : -1;
+        const aScore = a.cvssScore || 0;
+        const bScore = b.cvssScore || 0;
+        if (aScore !== bScore) return bScore - aScore;
+        return new Date(b.publishedDate).getTime() - new Date(a.publishedDate).getTime();
+      });
+
+      res.json(ranked);
+    } catch (error) {
+      console.error('Error fetching recent lab targets:', error);
+      res.status(500).json({ message: 'Failed to fetch recent lab targets' });
     }
   });
 
@@ -612,12 +693,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       // Process each CVE
+      // Pace processing to respect external service crawling limits
+      let processedInBatch = 0;
       for (const cveData of discoveredCves) {
         // Initialize Docker capability flags for this CVE
         let hasActualDockerCapability = false;
         let hasDockerHubContainers = false;
         
-        try {
+          try {
           // Check if CVE is lab suitable
           if (!cveService.isLabSuitable(cveData)) {
             continue;
@@ -685,7 +768,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
               console.log(`Found ${discoveryResults.totalSources} sources across ${Object.keys(discoveryResults.sourceBreakdown).length} platforms for ${cveData.cveId}`);
             } else {
-              console.log(`No PoC sources found for ${cveData.cveId}`);
+              // Require public PoC to proceed (reproducibility requirement)
+              console.log(`Skipping ${cveData.cveId}: no public PoC/repro resources found`);
+              continue;
             }
           } catch (error) {
             console.warn(`Multi-source discovery failed for ${cveData.cveId}:`, error);
@@ -717,9 +802,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             fingerprintingCompleted++;
             
-            // Update testability based on fingerprinting analysis
+            // Update testability based on fingerprinting analysis (curl or nmap)
             if (fingerprintResult.commands.length > 0) {
-              cveData.isCurlTestable = fingerprintResult.commands.some(cmd => cmd.type === 'curl');
+              const hasCurl = fingerprintResult.commands.some(cmd => cmd.type === 'curl');
+              const hasNmap = fingerprintResult.commands.some(cmd => cmd.type === 'nmap');
+              cveData.isCurlTestable = hasCurl || hasNmap;
             }
             
             console.log(`Generated ${fingerprintResult.commands.length} fingerprinting commands for ${cveData.cveId}`);
@@ -793,6 +880,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             };
           }
 
+          // Enforce fingerprintability requirement (must be testable with curl/nmap)
+          if (!cveData.isCurlTestable) {
+            console.log(`Skipping ${cveData.cveId}: not fingerprintable via curl/nmap`);
+            continue;
+          }
+
           // Calculate advanced lab suitability score AFTER all enrichment data is available
           const advancedScore = cveService.calculateAdvancedLabScore(cveData);
           cveData.labSuitabilityScore = advancedScore.score;
@@ -817,8 +910,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`Created new CVE ${cveData.cveId} with lab suitability score: ${cveData.labSuitabilityScore}`);
           }
 
-          // Add small delay to avoid overwhelming APIs
-          await new Promise(resolve => setTimeout(resolve, 100));
+          // Add pacing: brief sleep per item, extra sleep every 10 items
+          await new Promise(resolve => setTimeout(resolve, 120));
+          processedInBatch++;
+          if (processedInBatch % 10 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
         } catch (error) {
           console.error(`Error processing CVE ${cveData.cveId}:`, error);
           enrichmentFailures++;

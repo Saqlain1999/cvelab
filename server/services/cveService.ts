@@ -63,6 +63,23 @@ export class CveService {
     this.multiSourceDiscovery = new MultiSourceCveDiscoveryService();
     this.reliabilityScoring = new ReliabilityScoringService();
   }
+
+  // Curated prioritized vendors/technologies (expanded per user goals)
+  private readonly PRIORITIZED_KEYWORDS: string[] = [
+    // Infra and network
+    'apache','nginx','iis','tomcat','haproxy','squid','bind','dns','redis','solr','elasticsearch',
+    'ftp','proftpd','vsftpd','openssh','ssh','proxy','firewall',
+    // CMS / frameworks / web stacks
+    'wordpress','plugin','theme','joomla','drupal','opencms','craftcms','magento','laravel','symfony','spring','react','next.js','node.js','express',
+    // Enterprise & appliances
+    'ivanti','fortinet','fortigate','sonicwall','palo alto','panos','f5 big-ip','big-ip','pulse secure','citrix adc','netscaler','vmware','vcenter','esxi','horizon',
+    'microsoft exchange','sharepoint','sap netweaver','oracle weblogic','weblogic','tableau','moveit','progress ipswitch','goanywhere mft','minio','veeam','openfire','rocketmq','confluence','coldfusion','aria','papercut','bitvise','juniper',
+    // Popular products/services
+    'gitlab','jenkins','grafana','kibana','zabbix','sonarqube'
+  ];
+
+  // Helper to expose prioritized list to routes without breaking encapsulation too much
+  public getPrioritizedKeywordsUnsafe(): string[] { return this.PRIORITIZED_KEYWORDS; }
   
   // Lab-suitable technologies and their CPE patterns
   private readonly LAB_SUITABLE_CPE_PATTERNS = [
@@ -165,42 +182,38 @@ export class CveService {
 
       // Discover CVEs from all configured sources
       const discoveryResult = await this.multiSourceDiscovery.discoverCvesFromAllSources(discoveryOptions);
-
-      console.log(`Multi-source discovery completed:`);
-      console.log(`- Total unique CVEs discovered: ${discoveryResult.discoveredCves.length}`);
-      console.log(`- Sources used: ${Object.keys(discoveryResult.sourceBreakdown).join(', ')}`);
-      console.log(`- Duplicates detected: ${discoveryResult.deduplicationResult.duplicatesDetected}`);
-      console.log(`- Source conflicts: ${discoveryResult.deduplicationResult.sourceConflicts.length}`);
-
-      // Transform enriched CVE data to legacy format for compatibility
-      const transformedCves = discoveryResult.discoveredCves.map(enrichedCve => 
-        this.transformEnrichedCveToLegacyFormat(enrichedCve)
-      );
-
-      // Apply legacy filtering for lab suitability if requested
-      let filteredCves = transformedCves;
+      const deduplicationResult = discoveryResult.deduplicationResult;
+      console.log(`Final CVE count after deduplication: ${deduplicationResult.uniqueCves.length}`);
+      let filteredCves = deduplicationResult.uniqueCves;
       if (onlyLabSuitable) {
-        filteredCves = this.filterForLabSuitability(transformedCves, {
-          excludeAuthenticated: true,
-          attackVector: ['NETWORK'],
-          attackComplexity: ['LOW'],
-          userInteraction: ['NONE']
+        const labSuitable = filteredCves.filter(cve => cve.sourceMetadata?.isLabSuitable);
+        const rejected = filteredCves.filter(cve => !cve.sourceMetadata?.isLabSuitable);
+
+        // Log up to 5 rejected CVEs for debugging
+        rejected.slice(0, 5).forEach(cve => {
+          console.log(
+            `Filtered out ${cve.cveId}: Not lab-suitable ` +
+            `(tech: ${cve.affectedProducts?.[0] || 'none'}, ` +
+            `severity: ${cve.severity}, ` +
+            `reasons: ${cve.sourceMetadata?.labSuitabilityReasons?.join(', ') || 'unknown'})`
+          );
         });
+
+        // Log summary of filtering
+        if (rejected.length > 0) {
+          console.log(`Lab filtering: ${labSuitable.length} kept, ${rejected.length} rejected`);
+        }
+
+        filteredCves = labSuitable;
       }
 
-      // Record source performance for reliability scoring
-      this.recordDiscoveryPerformance(discoveryResult);
-
-      console.log(`Final CVE count after filtering: ${filteredCves.length}`);
       return filteredCves;
 
-    } catch (error) {
-      console.error('CveService: Multi-source discovery failed, falling back to NIST-only:', error);
-      
-      // Fallback to NIST-only discovery if multi-source fails
-      return await this.fetchCvesFromNist(options);
+      } catch (error) {
+        console.error('CveService: Discovery failed:', error);
+        return [];
+      }
     }
-  }
 
   /**
    * Legacy NIST-only method maintained for backward compatibility and fallback
@@ -543,13 +556,26 @@ export class CveService {
     const factors = advancedScoringService.generateFactorsFromCve(cve);
     
     // Calculate advanced score with detailed breakdown
-    return advancedScoringService.calculateAdvancedScore(
+    const base = advancedScoringService.calculateAdvancedScore(
       cve,
       factors.educational,
       factors.deployment,
       factors.technical,
       factors.practical
     );
+
+    // Boost score for prioritized vendors/technologies and fingerprintability
+    try {
+      const text = `${cve.affectedProduct || ''} ${cve.technology || ''} ${cve.description || ''}`.toLowerCase();
+      const isPriority = this.PRIORITIZED_KEYWORDS.some(k => text.includes(k));
+      const fpBoost = cve.isCurlTestable ? 0.5 : 0; // fingerprintable via curl/nmap
+      const priorityBoost = isPriority ? 0.7 : 0;
+      const dockerBoost = cve.isDockerDeployable ? 0.3 : 0;
+      const finalScore = Math.min(10, Math.round((base.score + fpBoost + priorityBoost + dockerBoost) * 10) / 10);
+      return { score: finalScore, breakdown: { ...base.breakdown, boosts: { fpBoost, priorityBoost, dockerBoost } } };
+    } catch {
+      return base;
+    }
   }
 
   calculateBasicLabScore(cve: any): number {

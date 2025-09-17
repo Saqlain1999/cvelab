@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -5,6 +6,14 @@ import { setupVite, serveStatic, log } from "./vite";
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Normalize common lowercase env var names to expected uppercase
+if (process.env.github_api_key && !process.env.GITHUB_API_KEY) {
+  process.env.GITHUB_API_KEY = process.env.github_api_key as string;
+}
+if (process.env.github_token && !process.env.GITHUB_TOKEN) {
+  process.env.GITHUB_TOKEN = process.env.github_token as string;
+}
 
 app.use((req, res, next) => {
   const start = Date.now();

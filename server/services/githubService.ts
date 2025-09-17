@@ -8,6 +8,7 @@ import {
   SearchResultMetadata 
 } from '../types/multiSourceTypes';
 import type { IStorage } from '../storage';
+import { rateLimit } from './rateLimiter';
 
 interface GitHubSearchResponse {
   total_count: number;
@@ -170,6 +171,7 @@ export class GitHubService {
       try {
         console.debug(`GitHub request attempt ${attempt + 1}/${this.CONFIG.maxRetries + 1}: ${query}`);
         
+        await rateLimit('GitHub');
         const response = await fetch(url, {
           headers,
           signal: AbortSignal.timeout(this.CONFIG.timeout)

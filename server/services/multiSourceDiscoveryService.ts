@@ -1,4 +1,6 @@
 import { GitHubService } from './githubService';
+import { storage } from '../storage';
+import { rateLimit } from './rateLimiter';
 
 export interface PocSource {
   type: 'github' | 'gitlab' | 'dockerhub' | 'exploitdb' | 'security_blog' | 'sec_rss';
@@ -39,7 +41,7 @@ export class MultiSourceDiscoveryService {
     baseDelay: 1000, // 1 second
     maxDelay: 10000, // 10 seconds
     timeout: 15000, // 15 seconds
-    userAgent: 'CVE-Lab-Hunter/2.0 (+https://github.com/cve-lab-hunter)',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     circuitBreakerThreshold: 5, // failures before circuit opens
     circuitBreakerResetTime: 60000 // 1 minute
   };
@@ -52,7 +54,7 @@ export class MultiSourceDiscoveryService {
   }>();
 
   constructor() {
-    this.githubService = new GitHubService();
+    this.githubService = new GitHubService(storage);
   }
 
   /**
@@ -63,6 +65,8 @@ export class MultiSourceDiscoveryService {
     options: RequestInit = {}, 
     serviceName: string
   ): Promise<Response | null> {
+    // token-bucket limit before each attempt
+    await rateLimit(serviceName);
     // Check circuit breaker
     if (this.isCircuitOpen(serviceName)) {
       console.warn(`Circuit breaker open for ${serviceName}, skipping request`);
@@ -202,11 +206,12 @@ export class MultiSourceDiscoveryService {
     }
   }
 
-  async discoverAllSources(cveId: string, options: SourceSearchOptions = { query: cveId }): Promise<{
-    sources: PocSource[];
-    dockerInfo: DockerDeploymentInfo[];
-    totalSources: number;
-    sourceBreakdown: Record<string, number>;
+  async discoverAllSources(cveId: string, options: SourceSearchOptions = { query: cveId }): Promise<{ 
+    sources: PocSource[]; 
+    dockerInfo: DockerDeploymentInfo[]; 
+    totalSources: number; 
+    sourceBreakdown: Record<string, number>; 
+    deploymentResources?: Array<{ type: string; title: string; url: string; confidence: number }>; 
   }> {
     const allSources: PocSource[] = [];
     const dockerInfo: DockerDeploymentInfo[] = [];
@@ -252,11 +257,22 @@ export class MultiSourceDiscoveryService {
     // Sort all sources by relevance score
     allSources.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
+    // Try deployment resource discovery (ISO, trials, VM images, docs)
+    let deploymentResources: Array<{ type: string; title: string; url: string; confidence: number }> | undefined;
+    try {
+      const { deploymentResourceService } = await import('./deploymentResourceService');
+      const resources = await deploymentResourceService.discoverResources(cveId, { query: options.query, maxResults: 10 });
+      deploymentResources = resources.map(r => ({ type: r.type, title: r.title, url: r.url, confidence: r.confidence }));
+    } catch (e) {
+      console.warn('Deployment resource discovery failed:', e);
+    }
+
     return {
       sources: allSources.slice(0, options.maxResults || 50),
       dockerInfo,
       totalSources: allSources.length,
-      sourceBreakdown
+      sourceBreakdown,
+      deploymentResources
     };
   }
 
@@ -301,7 +317,10 @@ export class MultiSourceDiscoveryService {
         `${options.query} proof concept`,
         `${options.query} demo`,
         `${options.query} lab`,
-        `${options.query} reproduce`
+        `${options.query} reproduce`,
+        `${options.query} ctf`,          // New: CTF challenges
+        `${options.query} tryhackme`,    // New: Popular lab platforms
+        `${options.query} hackthebox`    // New: More lab terms
       ];
 
       const allRepos: PocSource[] = [];
@@ -378,8 +397,10 @@ export class MultiSourceDiscoveryService {
       const searchQueries = [
         options.query,
         `${options.query}-poc`,
-        `${options.query.replace('-', '')}`,
-        `vulnerability-${options.query}`
+        `${options.query.replace('-', '')}poc`,  // New: No hyphen variant
+        `vulnerability-${options.query}`,
+        `${options.query}-lab`,                  // New: Lab containers
+        `${options.query}-ctf`                   // New: CTF Docker images
       ];
 
       const allContainers: PocSource[] = [];
@@ -441,18 +462,12 @@ export class MultiSourceDiscoveryService {
     try {
       // Curated list of reliable security RSS feeds
       const securityFeeds = [
-        // Removed: Packet Storm (SSL certificate issues)
         { name: 'The Hacker News', url: 'https://feeds.feedburner.com/TheHackersNews' },
         { name: 'SANS ISC', url: 'https://isc.sans.edu/rssfeed.xml' },
         { name: 'Krebs on Security', url: 'https://krebsonsecurity.com/feed/' },
         { name: 'Schneier on Security', url: 'https://www.schneier.com/feed/' },
-        // Removed: Threatpost (deprecated domain)
-        // Removed: Dark Reading (403 access blocked)
-        // Removed: Security Week (403 access blocked)  
         { name: 'BleepingComputer', url: 'https://www.bleepingcomputer.com/feed/' },
-        // Removed: Vulnerability Lab (404 not found)
-        { name: 'CVE Details', url: 'https://www.cvedetails.com/rss.php' },
-        { name: 'SecurityFocus', url: 'https://www.securityfocus.com/rss/vulnerabilities.xml' }
+        // Removed: CVE Details (404), SecurityFocus (dead domain)
       ];
 
       const allBlogPosts: PocSource[] = [];

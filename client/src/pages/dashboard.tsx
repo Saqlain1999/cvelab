@@ -20,6 +20,8 @@ export default function Dashboard() {
     limit: 50,
     offset: 0
   });
+  const [recentMode, setRecentMode] = useState(false);
+  const [recentCves, setRecentCves] = useState<Cve[] | null>(null);
   const [selectedCve, setSelectedCve] = useState<Cve | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [statusCve, setStatusCve] = useState<Cve | null>(null);
@@ -49,6 +51,8 @@ export default function Dashboard() {
       offset: 0
     });
     setSearchTerm("");
+    setRecentMode(false);
+    setRecentCves(null);
     toast({
       title: "Filters Cleared",
       description: "All filters have been reset to default values.",
@@ -62,7 +66,13 @@ export default function Dashboard() {
 
   const handleRefresh = async () => {
     try {
-      await refetch();
+      if (recentMode) {
+        const resp = await fetch('/api/cves/recent-lab-targets');
+        const data = await resp.json();
+        setRecentCves(data);
+      } else {
+        await refetch();
+      }
       toast({
         title: "Data Refreshed",
         description: "CVE data has been updated from the latest sources.",
@@ -71,6 +81,26 @@ export default function Dashboard() {
       toast({
         title: "Refresh Failed",
         description: "Failed to refresh CVE data. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleLoadRecentLabTargets = async () => {
+    try {
+      const resp = await fetch('/api/cves/recent-lab-targets');
+      if (!resp.ok) throw new Error('Failed to load recent lab targets');
+      const data = await resp.json();
+      setRecentCves(data);
+      setRecentMode(true);
+      toast({
+        title: "Loaded Recent Lab Targets",
+        description: `Showing ${data.length} curated CVEs.`,
+      });
+    } catch (e: any) {
+      toast({
+        title: "Load Failed",
+        description: e.message || 'Unable to load recent lab targets',
         variant: "destructive",
       });
     }
@@ -278,6 +308,9 @@ export default function Dashboard() {
               <Button onClick={handleRefresh} data-testid="button-refresh">
                 <RefreshCw className="h-4 w-4" />
               </Button>
+              <Button variant={recentMode ? 'secondary' : 'default'} onClick={handleLoadRecentLabTargets} data-testid="button-recent-lab-targets">
+                Recent Lab Targets
+              </Button>
             </div>
           </div>
         </header>
@@ -296,7 +329,7 @@ export default function Dashboard() {
             />
             
             <CveTable
-              cves={cves}
+              cves={recentMode && recentCves ? recentCves : cves}
               isLoading={isLoading}
               onViewDetails={handleViewDetails}
               onExport={handleExport}
