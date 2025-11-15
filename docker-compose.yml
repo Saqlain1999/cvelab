@@ -1,0 +1,158 @@
+version: '3.9'
+
+services:
+  # ================================
+  # PostgreSQL Database
+  # ================================
+  db:
+    image: postgres:15-alpine
+    container_name: cvelab_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-cveuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-cvepass}
+      POSTGRES_DB: ${DB_NAME:-cve_lab_db}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cveuser}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cvelab_network
+
+  # ================================
+  # Redis Cache
+  # ================================
+  redis:
+    image: redis:7-alpine
+    container_name: cvelab_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redispass}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cvelab_network
+
+  # ================================
+  # CVE Lab Application
+  # ================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: ${NODE_ENV:-production}
+    container_name: cvelab_app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5000}:5000"
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${DB_USER:-cveuser}:${DB_PASSWORD:-cvepass}@db:5432/${DB_NAME:-cve_lab_db}
+
+      # Redis
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redispass}@redis:6379
+
+      # Server
+      PORT: ${PORT:-5000}
+      NODE_ENV: ${NODE_ENV:-production}
+
+      # Authentication
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+
+      # External APIs
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      VULNCHECK_API_KEY: ${VULNCHECK_API_KEY}
+
+      # Rate Limiting
+      RATE_LIMIT_DEFAULT_RPS: ${RATE_LIMIT_DEFAULT_RPS:-2}
+      RL_GITHUB_RPS: ${RL_GITHUB_RPS:-10}
+      RL_GITLAB_RPS: ${RL_GITLAB_RPS:-10}
+      RL_DOCKERHUB_RPS: ${RL_DOCKERHUB_RPS:-5}
+      RL_BING_RPS: ${RL_BING_RPS:-1}
+      RL_RSS_RPS: ${RL_RSS_RPS:-5}
+
+      # Email (WHM SMTP)
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+
+      # Stripe (Billing)
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO}
+      STRIPE_PRICE_PREMIUM: ${STRIPE_PRICE_PREMIUM}
+
+      # Sentry (Error tracking)
+      SENTRY_DSN: ${SENTRY_DSN}
+
+      # App URLs
+      APP_URL: ${APP_URL:-http://localhost:5000}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5000,http://localhost:5173}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/api/cves"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - cvelab_network
+    volumes:
+      # Mount for logs (optional)
+      - ./logs:/app/logs
+
+  # ================================
+  # Nginx Reverse Proxy (Optional - for production)
+  # ================================
+  nginx:
+    image: nginx:alpine
+    container_name: cvelab_nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - app
+    networks:
+      - cvelab_network
+    profiles:
+      - production  # Only start with --profile production
+
+networks:
+  cvelab_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

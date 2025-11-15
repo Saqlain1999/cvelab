@@ -1,0 +1,72 @@
+{
+  "name": "cvelab-platform",
+  "description": "CVE Lab Platform - Automated vulnerability research and lab setup",
+  "type": "docker-compose",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/cvelab",
+    "branch": "main"
+  },
+  "compose": {
+    "file": "docker-compose.yml",
+    "project": "cvelab"
+  },
+  "environment": {
+    "source": "file",
+    "file": ".env"
+  },
+  "domains": [
+    {
+      "domain": "cvelab.yourdomain.com",
+      "https": true,
+      "certificateType": "letsencrypt"
+    }
+  ],
+  "ports": [
+    {
+      "published": 80,
+      "target": 5000,
+      "protocol": "tcp"
+    },
+    {
+      "published": 443,
+      "target": 5000,
+      "protocol": "tcp"
+    }
+  ],
+  "volumes": [
+    {
+      "type": "volume",
+      "source": "postgres_data",
+      "target": "/var/lib/postgresql/data"
+    },
+    {
+      "type": "volume",
+      "source": "redis_data",
+      "target": "/data"
+    }
+  ],
+  "healthCheck": {
+    "enabled": true,
+    "path": "/api/cves",
+    "interval": 30,
+    "timeout": 10,
+    "retries": 3
+  },
+  "resources": {
+    "memory": "2GB",
+    "cpu": "1",
+    "reservations": {
+      "memory": "512MB",
+      "cpu": "0.5"
+    }
+  },
+  "restart": "unless-stopped",
+  "logging": {
+    "driver": "json-file",
+    "options": {
+      "max-size": "10m",
+      "max-file": "3"
+    }
+  }
+}
