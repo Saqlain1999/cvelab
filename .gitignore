@@ -11,7 +11,17 @@ yarn-debug.log*
 yarn-error.log*
 *.tsbuildinfo
 .env
+.env.local
 Thumbs.db
+
+# Docker & deployment
+nginx/ssl/*.pem
+nginx/ssl/*.crt
+nginx/ssl/*.key
+nginx/logs/*.log
+backups/*.sql
+backups/*.sql.gz
+logs/*.log
 .vscode/
 .idea/
 VulnerableLabs.zip
